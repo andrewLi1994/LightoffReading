@@ -4,6 +4,8 @@ import Carbon.HIToolbox
 enum SpotlightShape: String, CaseIterable {
     case ellipse
     case rectangle
+    case horizontalStrip
+    case verticalStrip
 
     var displayName: String {
         switch self {
@@ -11,6 +13,10 @@ enum SpotlightShape: String, CaseIterable {
             return "Ellipse"
         case .rectangle:
             return "Rectangle"
+        case .horizontalStrip:
+            return "Full Width"
+        case .verticalStrip:
+            return "Full Height"
         }
     }
 }
@@ -180,11 +186,11 @@ enum SettingsStore {
     static func load() -> SpotlightConfig {
         let defaults = UserDefaults.standard
         defaults.register(defaults: [
-            shapeKey: SpotlightShape.ellipse.rawValue,
+            shapeKey: SpotlightShape.rectangle.rawValue,
             radiusKey: 120.0,
-            widthKey: 360.0,
-            heightKey: 260.0,
-            featherKey: 48.0,
+            widthKey: 880.0,
+            heightKey: 46.0,
+            featherKey: 46.0,
             opacityKey: 0.72,
             cursorXOffsetKey: -40.0,
             cursorYOffsetKey: 90.0
@@ -476,6 +482,15 @@ final class SpotlightOverlayView: NSView {
         effectiveFeather = clampedFeather
         self.spotlightCenter = spotlightCenter
 
+        switch config.shape {
+        case .horizontalStrip:
+            effectiveSpotlightWidth = bounds.width + effectiveFeather * 4
+        case .verticalStrip:
+            effectiveSpotlightHeight = bounds.height + effectiveFeather * 4
+        default:
+            break
+        }
+
         if shouldRedraw {
             needsDisplay = true
         }
@@ -503,7 +518,7 @@ final class SpotlightOverlayView: NSView {
         switch config.shape {
         case .ellipse:
             drawEllipse(in: context, center: spotlightCenter)
-        case .rectangle:
+        case .rectangle, .horizontalStrip, .verticalStrip:
             drawSoftRect(in: context, rect: rect(centeredAt: spotlightCenter, width: effectiveSpotlightWidth, height: effectiveSpotlightHeight))
         }
 
@@ -811,6 +826,17 @@ final class HUDSliderRow: NSView {
         valueLabel.stringValue = formatter(value)
     }
 
+    func setLocked(_ locked: Bool) {
+        slider.isEnabled = !locked
+        if locked {
+            valueLabel.stringValue = "Auto"
+            valueLabel.textColor = .tertiaryLabelColor
+        } else {
+            valueLabel.stringValue = formatter(slider.doubleValue)
+            valueLabel.textColor = .secondaryLabelColor
+        }
+    }
+
     @objc private func sliderChanged() {
         valueLabel.stringValue = formatter(slider.doubleValue)
         onChange(slider.doubleValue)
@@ -941,9 +967,21 @@ final class FloatingHUDView: NSVisualEffectView {
 
     func update(config: SpotlightConfig) {
         self.config = config
-        shapeControl.selectedSegment = config.shape == .ellipse ? 0 : 1
+
+        let segmentIndex: Int
+        switch config.shape {
+        case .ellipse: segmentIndex = 0
+        case .rectangle: segmentIndex = 1
+        case .horizontalStrip: segmentIndex = 2
+        case .verticalStrip: segmentIndex = 3
+        }
+        shapeControl.selectedSegment = segmentIndex
+
         widthRow.setValue(Double(config.width))
         heightRow.setValue(Double(config.height))
+        widthRow.setLocked(config.shape == .horizontalStrip)
+        heightRow.setLocked(config.shape == .verticalStrip)
+
         featherRow.setValue(Double(config.feather))
         opacityRow.setValue(Double(config.opacity))
         horizontalOffsetRow.setValue(Double(config.cursorXOffset))
@@ -1007,9 +1045,16 @@ final class FloatingHUDView: NSVisualEffectView {
         expandedViews.append(headerLabel)
         addSubview(headerLabel)
 
-        shapeControl = NSSegmentedControl(labels: ["Ellipse", "Rectangle"], trackingMode: .selectOne, target: self, action: #selector(shapeChanged))
+        shapeControl = NSSegmentedControl(labels: ["Ellipse", "Rect", "Full W", "Full H"], trackingMode: .selectOne, target: self, action: #selector(shapeChanged))
         shapeControl.frame = NSRect(x: 20, y: 328, width: 268, height: 28)
-        shapeControl.selectedSegment = config.shape == .ellipse ? 0 : 1
+        let initialSegment: Int
+        switch config.shape {
+        case .ellipse: initialSegment = 0
+        case .rectangle: initialSegment = 1
+        case .horizontalStrip: initialSegment = 2
+        case .verticalStrip: initialSegment = 3
+        }
+        shapeControl.selectedSegment = initialSegment
         expandedViews.append(shapeControl)
         addSubview(shapeControl)
 
@@ -1115,7 +1160,8 @@ final class FloatingHUDView: NSVisualEffectView {
     }
 
     @objc private func shapeChanged() {
-        config.shape = shapeControl.selectedSegment == 0 ? .ellipse : .rectangle
+        let shapes: [SpotlightShape] = [.ellipse, .rectangle, .horizontalStrip, .verticalStrip]
+        config.shape = shapes[shapeControl.selectedSegment]
         emitConfigChange()
     }
 }
@@ -1657,10 +1703,21 @@ final class OverlayController {
             y: mouseLocation.y + config.cursorYOffset
         )
 
-        return NSPoint(
+        var result = NSPoint(
             x: proposed.x.clamped(to: frame.minX...frame.maxX),
             y: proposed.y.clamped(to: frame.minY...frame.maxY)
         )
+
+        switch config.shape {
+        case .horizontalStrip:
+            result.x = frame.midX
+        case .verticalStrip:
+            result.y = frame.midY
+        default:
+            break
+        }
+
+        return result
     }
 }
 
@@ -1678,6 +1735,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var shapeItems: [SpotlightShape: NSMenuItem] = [:]
     private var widthLabel: NSTextField?
     private var heightLabel: NSTextField?
+    private var widthSlider: NSSlider?
+    private var heightSlider: NSSlider?
     private var featherLabel: NSTextField?
     private var opacityLabel: NSTextField?
     private var horizontalOffsetLabel: NSTextField?
@@ -1757,8 +1816,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         menu.addItem(.separator())
         menu.addItem(makeShapeMenuItem())
-        menu.addItem(makeSliderItem(title: "Width", symbolName: "arrow.left.and.right", value: Double(config.width), range: 0...3000, label: &widthLabel, action: #selector(widthChanged(_:))))
-        menu.addItem(makeSliderItem(title: "Height", symbolName: "arrow.up.and.down", value: Double(config.height), range: 0...3000, label: &heightLabel, action: #selector(heightChanged(_:))))
+        menu.addItem(makeSliderItem(title: "Width", symbolName: "arrow.left.and.right", value: Double(config.width), range: 0...3000, label: &widthLabel, slider: &widthSlider, action: #selector(widthChanged(_:))))
+        menu.addItem(makeSliderItem(title: "Height", symbolName: "arrow.up.and.down", value: Double(config.height), range: 0...3000, label: &heightLabel, slider: &heightSlider, action: #selector(heightChanged(_:))))
         menu.addItem(makeSliderItem(title: "Soft Edge", symbolName: "circle.dashed", value: Double(config.feather), range: 0...240, label: &featherLabel, action: #selector(featherChanged(_:))))
         menu.addItem(makeSliderItem(title: "Darkness", symbolName: "circle.lefthalf.filled", value: Double(config.opacity), range: 0.35...0.90, label: &opacityLabel, action: #selector(opacityChanged(_:))))
         menu.addItem(makeSliderItem(title: "Left / Right", symbolName: "arrow.left.arrow.right", value: Double(config.cursorXOffset), range: -220...220, label: &horizontalOffsetLabel, action: #selector(horizontalOffsetChanged(_:))))
@@ -1806,7 +1865,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let item = NSMenuItem(title: "Shape", action: nil, keyEquivalent: "")
         let submenu = NSMenu()
 
-        for shape in [SpotlightShape.ellipse, .rectangle] {
+        for shape in SpotlightShape.allCases {
             let shapeItem = NSMenuItem(title: shape.displayName, action: #selector(shapeChanged(_:)), keyEquivalent: "")
             shapeItem.target = self
             shapeItem.representedObject = shape.rawValue
@@ -1824,6 +1883,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         value: Double,
         range: ClosedRange<Double>,
         label: inout NSTextField?,
+        slider: inout NSSlider?,
         action: Selector
     ) -> NSMenuItem {
         let item = NSMenuItem()
@@ -1856,14 +1916,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         container.addSubview(valueLabel)
         label = valueLabel
 
-        let slider = NSSlider(value: value, minValue: range.lowerBound, maxValue: range.upperBound, target: self, action: action)
-        slider.isContinuous = true
-        slider.frame = NSRect(x: contentLeft - 2, y: 6, width: 244 - (contentLeft - 14), height: 20)
-        slider.autoresizingMask = [.width]
-        container.addSubview(slider)
+        let sliderControl = NSSlider(value: value, minValue: range.lowerBound, maxValue: range.upperBound, target: self, action: action)
+        sliderControl.isContinuous = true
+        sliderControl.frame = NSRect(x: contentLeft - 2, y: 6, width: 244 - (contentLeft - 14), height: 20)
+        sliderControl.autoresizingMask = [.width]
+        container.addSubview(sliderControl)
+        slider = sliderControl
 
         item.view = container
         return item
+    }
+
+    private func makeSliderItem(
+        title: String,
+        symbolName: String,
+        value: Double,
+        range: ClosedRange<Double>,
+        label: inout NSTextField?,
+        action: Selector
+    ) -> NSMenuItem {
+        var unused: NSSlider?
+        return makeSliderItem(title: title, symbolName: symbolName, value: value, range: range, label: &label, slider: &unused, action: action)
     }
 
     @objc private func toggleReadingLight() {
@@ -2069,8 +2142,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func refreshSliderLabels() {
-        widthLabel?.stringValue = "\(Int(config.width)) px"
-        heightLabel?.stringValue = "\(Int(config.height)) px"
+        let isHStrip = config.shape == .horizontalStrip
+        let isVStrip = config.shape == .verticalStrip
+
+        widthLabel?.stringValue = isHStrip ? "Auto" : "\(Int(config.width)) px"
+        widthLabel?.textColor = isHStrip ? .tertiaryLabelColor : .labelColor
+        widthSlider?.isEnabled = !isHStrip
+
+        heightLabel?.stringValue = isVStrip ? "Auto" : "\(Int(config.height)) px"
+        heightLabel?.textColor = isVStrip ? .tertiaryLabelColor : .labelColor
+        heightSlider?.isEnabled = !isVStrip
+
         featherLabel?.stringValue = "\(Int(config.feather)) px"
         opacityLabel?.stringValue = "\(Int((config.opacity * 100).rounded()))%"
         horizontalOffsetLabel?.stringValue = "\(Int(config.cursorXOffset)) px"
