@@ -16,18 +16,23 @@ if [[ -z "$APP_VERSION" && "${GITHUB_REF_NAME:-}" == v* ]]; then
     APP_VERSION="${GITHUB_REF_NAME#v}"
 fi
 
-APP_VERSION="${APP_VERSION:-0.1.1}"
+APP_VERSION="${APP_VERSION:-0.1.2}"
 
 cd "$ROOT"
-rm -rf "$APP_PATH"
-mkdir -p "$APP_PATH/Contents/MacOS" "$APP_PATH/Contents/Resources"
 
 if [[ "$UNIVERSAL_BUILD" == "1" ]]; then
     swift build -c release --arch arm64 >&2
     swift build -c release --arch x86_64 >&2
-    /usr/bin/lipo -create "$ARM64_BINARY_PATH" "$X86_64_BINARY_PATH" -output "$APP_PATH/Contents/MacOS/$APP_NAME"
 else
     swift build -c release >&2
+fi
+
+rm -rf "$APP_PATH"
+mkdir -p "$APP_PATH/Contents/MacOS" "$APP_PATH/Contents/Resources"
+
+if [[ "$UNIVERSAL_BUILD" == "1" ]]; then
+    /usr/bin/lipo -create "$ARM64_BINARY_PATH" "$X86_64_BINARY_PATH" -output "$APP_PATH/Contents/MacOS/$APP_NAME"
+else
     cp "$BINARY_PATH" "$APP_PATH/Contents/MacOS/$APP_NAME"
 fi
 
