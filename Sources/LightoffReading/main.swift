@@ -753,8 +753,12 @@ final class HUDSliderRow: NSView {
     private let formatter: (Double) -> String
     private let onChange: (Double) -> Void
 
+    private static let iconColumnWidth: CGFloat = 22
+    private static let iconSliderGap: CGFloat = 4
+
     init(
         title: String,
+        symbolName: String,
         value: Double,
         range: ClosedRange<Double>,
         formatter: @escaping (Double) -> String,
@@ -765,12 +769,24 @@ final class HUDSliderRow: NSView {
         self.formatter = formatter
         self.onChange = onChange
 
+        let contentLeft = Self.iconColumnWidth + Self.iconSliderGap
+
         super.init(frame: NSRect(x: 0, y: 0, width: 268, height: 44))
+
+        let iconView = NSImageView(frame: NSRect(x: 0, y: 2, width: 18, height: 18))
+        if let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: title) {
+            image.isTemplate = true
+            iconView.image = image
+        }
+        iconView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
+        iconView.contentTintColor = .secondaryLabelColor
+        iconView.imageAlignment = .alignCenter
+        addSubview(iconView)
 
         let titleLabel = NSTextField(labelWithString: title)
         titleLabel.font = .systemFont(ofSize: 12, weight: .medium)
         titleLabel.textColor = .labelColor
-        titleLabel.frame = NSRect(x: 0, y: 25, width: 132, height: 16)
+        titleLabel.frame = NSRect(x: contentLeft, y: 25, width: 132 - contentLeft, height: 16)
         addSubview(titleLabel)
 
         valueLabel.alignment = .right
@@ -782,7 +798,7 @@ final class HUDSliderRow: NSView {
         slider.target = self
         slider.action = #selector(sliderChanged)
         slider.isContinuous = true
-        slider.frame = NSRect(x: -2, y: 1, width: 272, height: 22)
+        slider.frame = NSRect(x: contentLeft - 2, y: 1, width: 272 - contentLeft, height: 22)
         addSubview(slider)
     }
 
@@ -997,7 +1013,7 @@ final class FloatingHUDView: NSVisualEffectView {
         expandedViews.append(shapeControl)
         addSubview(shapeControl)
 
-        widthRow = makeRow(title: "Width", value: Double(config.width), range: 0...3000, formatter: pixelFormatter) { [weak self] value in
+        widthRow = makeRow(title: "Width", symbolName: "arrow.left.and.right", value: Double(config.width), range: 0...3000, formatter: pixelFormatter) { [weak self] value in
             self?.config.width = CGFloat(value.rounded())
             self?.emitConfigChange()
         }
@@ -1005,7 +1021,7 @@ final class FloatingHUDView: NSVisualEffectView {
         expandedViews.append(widthRow)
         addSubview(widthRow)
 
-        heightRow = makeRow(title: "Height", value: Double(config.height), range: 0...3000, formatter: pixelFormatter) { [weak self] value in
+        heightRow = makeRow(title: "Height", symbolName: "arrow.up.and.down", value: Double(config.height), range: 0...3000, formatter: pixelFormatter) { [weak self] value in
             self?.config.height = CGFloat(value.rounded())
             self?.emitConfigChange()
         }
@@ -1013,7 +1029,7 @@ final class FloatingHUDView: NSVisualEffectView {
         expandedViews.append(heightRow)
         addSubview(heightRow)
 
-        featherRow = makeRow(title: "Soft Edge", value: Double(config.feather), range: 0...240, formatter: pixelFormatter) { [weak self] value in
+        featherRow = makeRow(title: "Soft Edge", symbolName: "circle.dashed", value: Double(config.feather), range: 0...240, formatter: pixelFormatter) { [weak self] value in
             self?.config.feather = CGFloat(value.rounded())
             self?.emitConfigChange()
         }
@@ -1021,7 +1037,7 @@ final class FloatingHUDView: NSVisualEffectView {
         expandedViews.append(featherRow)
         addSubview(featherRow)
 
-        opacityRow = makeRow(title: "Darkness", value: Double(config.opacity), range: 0.35...0.90, formatter: percentFormatter) { [weak self] value in
+        opacityRow = makeRow(title: "Darkness", symbolName: "circle.lefthalf.filled", value: Double(config.opacity), range: 0.35...0.90, formatter: percentFormatter) { [weak self] value in
             self?.config.opacity = CGFloat(value)
             self?.emitConfigChange()
         }
@@ -1029,7 +1045,7 @@ final class FloatingHUDView: NSVisualEffectView {
         expandedViews.append(opacityRow)
         addSubview(opacityRow)
 
-        horizontalOffsetRow = makeRow(title: "Left / Right", value: Double(config.cursorXOffset), range: -220...220, formatter: pixelFormatter) { [weak self] value in
+        horizontalOffsetRow = makeRow(title: "Left / Right", symbolName: "arrow.left.arrow.right", value: Double(config.cursorXOffset), range: -220...220, formatter: pixelFormatter) { [weak self] value in
             self?.config.cursorXOffset = CGFloat(value.rounded())
             self?.emitConfigChange()
         }
@@ -1037,7 +1053,7 @@ final class FloatingHUDView: NSVisualEffectView {
         expandedViews.append(horizontalOffsetRow)
         addSubview(horizontalOffsetRow)
 
-        verticalOffsetRow = makeRow(title: "Above Cursor", value: Double(config.cursorYOffset), range: 20...220, formatter: pixelFormatter) { [weak self] value in
+        verticalOffsetRow = makeRow(title: "Above Cursor", symbolName: "arrow.up", value: Double(config.cursorYOffset), range: 20...220, formatter: pixelFormatter) { [weak self] value in
             self?.config.cursorYOffset = CGFloat(value.rounded())
             self?.emitConfigChange()
         }
@@ -1065,12 +1081,13 @@ final class FloatingHUDView: NSVisualEffectView {
 
     private func makeRow(
         title: String,
+        symbolName: String,
         value: Double,
         range: ClosedRange<Double>,
         formatter: @escaping (Double) -> String,
         onChange: @escaping (Double) -> Void
     ) -> HUDSliderRow {
-        HUDSliderRow(title: title, value: value, range: range, formatter: formatter, onChange: onChange)
+        HUDSliderRow(title: title, symbolName: symbolName, value: value, range: range, formatter: formatter, onChange: onChange)
     }
 
     private func pixelFormatter(_ value: Double) -> String {
@@ -1740,12 +1757,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         menu.addItem(.separator())
         menu.addItem(makeShapeMenuItem())
-        menu.addItem(makeSliderItem(title: "Width", value: Double(config.width), range: 0...3000, label: &widthLabel, action: #selector(widthChanged(_:))))
-        menu.addItem(makeSliderItem(title: "Height", value: Double(config.height), range: 0...3000, label: &heightLabel, action: #selector(heightChanged(_:))))
-        menu.addItem(makeSliderItem(title: "Soft Edge", value: Double(config.feather), range: 0...240, label: &featherLabel, action: #selector(featherChanged(_:))))
-        menu.addItem(makeSliderItem(title: "Darkness", value: Double(config.opacity), range: 0.35...0.90, label: &opacityLabel, action: #selector(opacityChanged(_:))))
-        menu.addItem(makeSliderItem(title: "Left / Right", value: Double(config.cursorXOffset), range: -220...220, label: &horizontalOffsetLabel, action: #selector(horizontalOffsetChanged(_:))))
-        menu.addItem(makeSliderItem(title: "Above Cursor", value: Double(config.cursorYOffset), range: 20...220, label: &offsetLabel, action: #selector(offsetChanged(_:))))
+        menu.addItem(makeSliderItem(title: "Width", symbolName: "arrow.left.and.right", value: Double(config.width), range: 0...3000, label: &widthLabel, action: #selector(widthChanged(_:))))
+        menu.addItem(makeSliderItem(title: "Height", symbolName: "arrow.up.and.down", value: Double(config.height), range: 0...3000, label: &heightLabel, action: #selector(heightChanged(_:))))
+        menu.addItem(makeSliderItem(title: "Soft Edge", symbolName: "circle.dashed", value: Double(config.feather), range: 0...240, label: &featherLabel, action: #selector(featherChanged(_:))))
+        menu.addItem(makeSliderItem(title: "Darkness", symbolName: "circle.lefthalf.filled", value: Double(config.opacity), range: 0.35...0.90, label: &opacityLabel, action: #selector(opacityChanged(_:))))
+        menu.addItem(makeSliderItem(title: "Left / Right", symbolName: "arrow.left.arrow.right", value: Double(config.cursorXOffset), range: -220...220, label: &horizontalOffsetLabel, action: #selector(horizontalOffsetChanged(_:))))
+        menu.addItem(makeSliderItem(title: "Above Cursor", symbolName: "arrow.up", value: Double(config.cursorYOffset), range: 20...220, label: &offsetLabel, action: #selector(offsetChanged(_:))))
 
         menu.addItem(.separator())
 
@@ -1803,6 +1820,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func makeSliderItem(
         title: String,
+        symbolName: String,
         value: Double,
         range: ClosedRange<Double>,
         label: inout NSTextField?,
@@ -1812,9 +1830,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 268, height: 52))
         container.autoresizingMask = [.width]
 
+        let iconLeft: CGFloat = 14
+        let contentLeft: CGFloat = 36
+
+        let iconView = NSImageView(frame: NSRect(x: iconLeft, y: 7, width: 18, height: 18))
+        if let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: title) {
+            image.isTemplate = true
+            iconView.image = image
+        }
+        iconView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
+        iconView.contentTintColor = .secondaryLabelColor
+        iconView.imageAlignment = .alignCenter
+        container.addSubview(iconView)
+
         let titleLabel = NSTextField(labelWithString: title)
         titleLabel.font = .systemFont(ofSize: 12, weight: .medium)
-        titleLabel.frame = NSRect(x: 14, y: 29, width: 142, height: 16)
+        titleLabel.frame = NSRect(x: contentLeft, y: 29, width: 120, height: 16)
         container.addSubview(titleLabel)
 
         let valueLabel = NSTextField(labelWithString: "")
@@ -1827,7 +1858,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         let slider = NSSlider(value: value, minValue: range.lowerBound, maxValue: range.upperBound, target: self, action: action)
         slider.isContinuous = true
-        slider.frame = NSRect(x: 12, y: 6, width: 244, height: 20)
+        slider.frame = NSRect(x: contentLeft - 2, y: 6, width: 244 - (contentLeft - 14), height: 20)
         slider.autoresizingMask = [.width]
         container.addSubview(slider)
 
