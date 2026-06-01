@@ -548,18 +548,21 @@ final class SpotlightOverlayView: NSView {
 
     private func drawSoftRect(in context: CGContext, rect: NSRect) {
         let feather = cappedFeather(forShortDimension: min(rect.width, rect.height))
+        let cornerRadius = min(16.0, min(rect.width, rect.height) / 2.0)
 
         context.setFillColor(NSColor.white.cgColor)
-        context.fill(rect)
+        let path = CGPath(roundedRect: rect, cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil)
+        context.addPath(path)
+        context.fillPath()
 
         guard feather > 0.5 else {
             return
         }
 
-        drawRectOuterFeather(in: context, rect: rect, feather: feather)
+        drawRectOuterFeather(in: context, rect: rect, feather: feather, cornerRadius: cornerRadius)
     }
 
-    private func drawRectOuterFeather(in context: CGContext, rect: NSRect, feather: CGFloat) {
+    private func drawRectOuterFeather(in context: CGContext, rect: NSRect, feather: CGFloat, cornerRadius: CGFloat) {
         let maxSteps = 72
         let steps = max(8, min(maxSteps, Int(feather.rounded(.up))))
         let stepWidth = feather / CGFloat(steps)
@@ -572,10 +575,14 @@ final class SpotlightOverlayView: NSView {
             let distance = CGFloat(index) * stepWidth + stepWidth / 2
             let alpha = pow(1 - progress, 1.8)
             let strokeRect = rect.insetBy(dx: -distance, dy: -distance)
+            let outerRadius = cornerRadius + distance
 
             context.setStrokeColor(NSColor.white.withAlphaComponent(alpha).cgColor)
             context.setLineWidth(stepWidth)
-            context.stroke(strokeRect)
+            
+            let path = CGPath(roundedRect: strokeRect, cornerWidth: outerRadius, cornerHeight: outerRadius, transform: nil)
+            context.addPath(path)
+            context.strokePath()
         }
 
         context.restoreGState()
@@ -691,12 +698,12 @@ final class FirstRunHintView: NSView {
         iconView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 22, weight: .semibold)
         addSubview(iconView)
 
-        let titleLabel = NSTextField(labelWithString: "LightoffReading is running here")
+        let titleLabel = NSTextField(labelWithString: "LightoffReading is ready")
         titleLabel.font = .systemFont(ofSize: 15, weight: .semibold)
         titleLabel.frame = NSRect(x: 56, y: 122, width: 238, height: 20)
         addSubview(titleLabel)
 
-        let bodyLabel = NSTextField(wrappingLabelWithString: "Use this menu bar icon to adjust shape, width, height, soft edge, darkness, and shortcut.")
+        let bodyLabel = NSTextField(wrappingLabelWithString: "Use the floating HUD to turn the light on, then open adjustments while the screen is dimmed.")
         bodyLabel.font = .systemFont(ofSize: 12)
         bodyLabel.textColor = .secondaryLabelColor
         bodyLabel.frame = NSRect(x: 18, y: 74, width: 284, height: 38)
@@ -720,6 +727,654 @@ final class FirstRunHintView: NSView {
 
     @objc private func dismiss() {
         onDismiss()
+    }
+}
+
+private enum HUDEdge {
+    case left
+    case right
+    case top
+    case bottom
+}
+
+final class FloatingHUDWindow: NSPanel {
+    override var canBecomeKey: Bool {
+        true
+    }
+
+    override var canBecomeMain: Bool {
+        false
+    }
+}
+
+final class HUDSliderRow: NSView {
+    let slider: NSSlider
+    private let valueLabel: NSTextField
+    private let formatter: (Double) -> String
+    private let onChange: (Double) -> Void
+
+    init(
+        title: String,
+        value: Double,
+        range: ClosedRange<Double>,
+        formatter: @escaping (Double) -> String,
+        onChange: @escaping (Double) -> Void
+    ) {
+        self.slider = NSSlider(value: value, minValue: range.lowerBound, maxValue: range.upperBound, target: nil, action: nil)
+        self.valueLabel = NSTextField(labelWithString: formatter(value))
+        self.formatter = formatter
+        self.onChange = onChange
+
+        super.init(frame: NSRect(x: 0, y: 0, width: 268, height: 44))
+
+        let titleLabel = NSTextField(labelWithString: title)
+        titleLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        titleLabel.textColor = .labelColor
+        titleLabel.frame = NSRect(x: 0, y: 25, width: 132, height: 16)
+        addSubview(titleLabel)
+
+        valueLabel.alignment = .right
+        valueLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+        valueLabel.textColor = .secondaryLabelColor
+        valueLabel.frame = NSRect(x: 150, y: 25, width: 118, height: 16)
+        addSubview(valueLabel)
+
+        slider.target = self
+        slider.action = #selector(sliderChanged)
+        slider.isContinuous = true
+        slider.frame = NSRect(x: -2, y: 1, width: 272, height: 22)
+        addSubview(slider)
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    func setValue(_ value: Double) {
+        slider.doubleValue = value
+        valueLabel.stringValue = formatter(value)
+    }
+
+    @objc private func sliderChanged() {
+        valueLabel.stringValue = formatter(slider.doubleValue)
+        onChange(slider.doubleValue)
+    }
+}
+
+final class FloatingHUDView: NSVisualEffectView {
+    private static let collapsedSize = NSSize(width: 118, height: 52)
+    private static let expandedSize = NSSize(width: 308, height: 416)
+
+    var onToggleLight: (() -> Void)?
+    var onExpansionChange: ((Bool) -> Void)?
+    var onConfigChange: ((SpotlightConfig) -> Void)?
+    var onMouseEnteredHUD: (() -> Void)?
+    var onMouseExitedHUD: (() -> Void)?
+    var onActivity: (() -> Void)?
+    var onDragBegan: (() -> Void)?
+    var onDragMoved: ((NSPoint) -> Void)?
+    var onDragEnded: (() -> Void)?
+
+    private var config: SpotlightConfig
+    private var trackingArea: NSTrackingArea?
+    private var dragStartLocation: NSPoint?
+    private var dragStartOrigin: NSPoint?
+    private var powerButton: NSButton!
+    private var adjustButton: NSButton!
+    private var shapeControl: NSSegmentedControl!
+    private var widthRow: HUDSliderRow!
+    private var heightRow: HUDSliderRow!
+    private var featherRow: HUDSliderRow!
+    private var opacityRow: HUDSliderRow!
+    private var horizontalOffsetRow: HUDSliderRow!
+    private var verticalOffsetRow: HUDSliderRow!
+    private var expandedViews: [NSView] = []
+    private(set) var isExpanded = false
+    private var isLightOn: Bool
+
+    static var collapsedContentSize: NSSize {
+        collapsedSize
+    }
+
+    static var expandedContentSize: NSSize {
+        expandedSize
+    }
+
+    init(config: SpotlightConfig, isLightOn: Bool) {
+        self.config = config
+        self.isLightOn = isLightOn
+        super.init(frame: NSRect(origin: .zero, size: Self.collapsedSize))
+
+        material = .hudWindow
+        blendingMode = .behindWindow
+        state = .active
+        wantsLayer = true
+        layer?.cornerRadius = 18
+        layer?.masksToBounds = true
+
+        setupControls()
+        updateLightState(isLightOn)
+        update(config: config)
+        setExpanded(false, notify: false)
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override var acceptsFirstResponder: Bool {
+        true
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func updateTrackingAreas() {
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.activeAlways, .inVisibleRect, .mouseEnteredAndExited, .mouseMoved],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        trackingArea = area
+        super.updateTrackingAreas()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        onMouseEnteredHUD?()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        onMouseExitedHUD?()
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        onActivity?()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        dragStartLocation = NSEvent.mouseLocation
+        dragStartOrigin = window?.frame.origin
+        onDragBegan?()
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let dragStartLocation,
+              let dragStartOrigin else {
+            return
+        }
+
+        let currentLocation = NSEvent.mouseLocation
+        onDragMoved?(NSPoint(
+            x: dragStartOrigin.x + currentLocation.x - dragStartLocation.x,
+            y: dragStartOrigin.y + currentLocation.y - dragStartLocation.y
+        ))
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        dragStartLocation = nil
+        dragStartOrigin = nil
+        onDragEnded?()
+    }
+
+    func update(config: SpotlightConfig) {
+        self.config = config
+        shapeControl.selectedSegment = config.shape == .ellipse ? 0 : 1
+        widthRow.setValue(Double(config.width))
+        heightRow.setValue(Double(config.height))
+        featherRow.setValue(Double(config.feather))
+        opacityRow.setValue(Double(config.opacity))
+        horizontalOffsetRow.setValue(Double(config.cursorXOffset))
+        verticalOffsetRow.setValue(Double(config.cursorYOffset))
+    }
+
+    func updateLightState(_ isLightOn: Bool) {
+        self.isLightOn = isLightOn
+
+        if let image = NSImage(
+            systemSymbolName: isLightOn ? "lightbulb.fill" : "lightbulb",
+            accessibilityDescription: nil
+        ) {
+            image.isTemplate = true
+            powerButton.image = image
+        }
+
+        powerButton.toolTip = isLightOn ? "Turn Off Reading Light" : "Turn On Reading Light"
+        layer?.borderWidth = isLightOn ? 1.5 : 1
+        layer?.borderColor = NSColor.white.withAlphaComponent(isLightOn ? 0.35 : 0.18).cgColor
+    }
+
+    func setExpanded(_ expanded: Bool, notify: Bool = true) {
+        isExpanded = expanded
+        frame.size = expanded ? Self.expandedSize : Self.collapsedSize
+        expandedViews.forEach { $0.isHidden = !expanded }
+
+        if let image = NSImage(
+            systemSymbolName: expanded ? "slider.horizontal.3" : "slider.horizontal.3",
+            accessibilityDescription: nil
+        ) {
+            image.isTemplate = true
+            adjustButton.image = image
+        }
+
+        adjustButton.toolTip = expanded ? "Hide Adjustments" : "Adjust Reading Area"
+        needsDisplay = true
+
+        if notify {
+            onExpansionChange?(expanded)
+        }
+    }
+
+    private func setupControls() {
+        powerButton = makeIconButton(symbol: "lightbulb", action: #selector(toggleLight))
+        powerButton.frame = NSRect(x: 12, y: 10, width: 40, height: 32)
+        addSubview(powerButton)
+
+        adjustButton = makeIconButton(symbol: "slider.horizontal.3", action: #selector(toggleExpanded))
+        adjustButton.frame = NSRect(x: 66, y: 10, width: 40, height: 32)
+        addSubview(adjustButton)
+
+        let divider = NSBox(frame: NSRect(x: 20, y: 362, width: 268, height: 1))
+        divider.boxType = .separator
+        expandedViews.append(divider)
+        addSubview(divider)
+
+        let headerLabel = NSTextField(labelWithString: "Live Adjust")
+        headerLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        headerLabel.frame = NSRect(x: 20, y: 374, width: 180, height: 18)
+        expandedViews.append(headerLabel)
+        addSubview(headerLabel)
+
+        shapeControl = NSSegmentedControl(labels: ["Ellipse", "Rectangle"], trackingMode: .selectOne, target: self, action: #selector(shapeChanged))
+        shapeControl.frame = NSRect(x: 20, y: 328, width: 268, height: 28)
+        shapeControl.selectedSegment = config.shape == .ellipse ? 0 : 1
+        expandedViews.append(shapeControl)
+        addSubview(shapeControl)
+
+        widthRow = makeRow(title: "Width", value: Double(config.width), range: 0...3000, formatter: pixelFormatter) { [weak self] value in
+            self?.config.width = CGFloat(value.rounded())
+            self?.emitConfigChange()
+        }
+        widthRow.frame.origin = NSPoint(x: 20, y: 278)
+        expandedViews.append(widthRow)
+        addSubview(widthRow)
+
+        heightRow = makeRow(title: "Height", value: Double(config.height), range: 0...3000, formatter: pixelFormatter) { [weak self] value in
+            self?.config.height = CGFloat(value.rounded())
+            self?.emitConfigChange()
+        }
+        heightRow.frame.origin = NSPoint(x: 20, y: 234)
+        expandedViews.append(heightRow)
+        addSubview(heightRow)
+
+        featherRow = makeRow(title: "Soft Edge", value: Double(config.feather), range: 0...240, formatter: pixelFormatter) { [weak self] value in
+            self?.config.feather = CGFloat(value.rounded())
+            self?.emitConfigChange()
+        }
+        featherRow.frame.origin = NSPoint(x: 20, y: 190)
+        expandedViews.append(featherRow)
+        addSubview(featherRow)
+
+        opacityRow = makeRow(title: "Darkness", value: Double(config.opacity), range: 0.35...0.90, formatter: percentFormatter) { [weak self] value in
+            self?.config.opacity = CGFloat(value)
+            self?.emitConfigChange()
+        }
+        opacityRow.frame.origin = NSPoint(x: 20, y: 146)
+        expandedViews.append(opacityRow)
+        addSubview(opacityRow)
+
+        horizontalOffsetRow = makeRow(title: "Left / Right", value: Double(config.cursorXOffset), range: -220...220, formatter: pixelFormatter) { [weak self] value in
+            self?.config.cursorXOffset = CGFloat(value.rounded())
+            self?.emitConfigChange()
+        }
+        horizontalOffsetRow.frame.origin = NSPoint(x: 20, y: 102)
+        expandedViews.append(horizontalOffsetRow)
+        addSubview(horizontalOffsetRow)
+
+        verticalOffsetRow = makeRow(title: "Above Cursor", value: Double(config.cursorYOffset), range: 20...220, formatter: pixelFormatter) { [weak self] value in
+            self?.config.cursorYOffset = CGFloat(value.rounded())
+            self?.emitConfigChange()
+        }
+        verticalOffsetRow.frame.origin = NSPoint(x: 20, y: 58)
+        expandedViews.append(verticalOffsetRow)
+        addSubview(verticalOffsetRow)
+    }
+
+    private func makeIconButton(symbol: String, action: Selector) -> NSButton {
+        let button = NSButton(frame: .zero)
+        button.bezelStyle = .rounded
+        button.imagePosition = .imageOnly
+        button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 17, weight: .semibold)
+        button.target = self
+        button.action = action
+        button.setButtonType(.momentaryPushIn)
+
+        if let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) {
+            image.isTemplate = true
+            button.image = image
+        }
+
+        return button
+    }
+
+    private func makeRow(
+        title: String,
+        value: Double,
+        range: ClosedRange<Double>,
+        formatter: @escaping (Double) -> String,
+        onChange: @escaping (Double) -> Void
+    ) -> HUDSliderRow {
+        HUDSliderRow(title: title, value: value, range: range, formatter: formatter, onChange: onChange)
+    }
+
+    private func pixelFormatter(_ value: Double) -> String {
+        "\(Int(value.rounded())) px"
+    }
+
+    private func percentFormatter(_ value: Double) -> String {
+        "\(Int((value * 100).rounded()))%"
+    }
+
+    private func emitConfigChange() {
+        update(config: config)
+        onConfigChange?(config)
+        onActivity?()
+    }
+
+    @objc private func toggleLight() {
+        onToggleLight?()
+        onActivity?()
+    }
+
+    @objc private func toggleExpanded() {
+        setExpanded(!isExpanded)
+        onActivity?()
+    }
+
+    @objc private func shapeChanged() {
+        config.shape = shapeControl.selectedSegment == 0 ? .ellipse : .rectangle
+        emitConfigChange()
+    }
+}
+
+final class FloatingHUDController {
+    private static let peekSize: CGFloat = 24
+    private static let autoHideDelay: TimeInterval = 3.2
+
+    private let window: FloatingHUDWindow
+    private let hudView: FloatingHUDView
+    private var autoHideTimer: Timer?
+    private var dockedEdge: HUDEdge?
+    private var isTucked = false
+
+    init(
+        config: SpotlightConfig,
+        isLightOn: Bool,
+        onToggleLight: @escaping () -> Void,
+        onConfigChange: @escaping (SpotlightConfig) -> Void
+    ) {
+        let initialSize = FloatingHUDView.collapsedContentSize
+        let initialFrame = Self.defaultFrame(size: initialSize)
+
+        self.window = FloatingHUDWindow(
+            contentRect: initialFrame,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        self.hudView = FloatingHUDView(config: config, isLightOn: isLightOn)
+
+        window.backgroundColor = .clear
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        window.contentView = hudView
+        window.hasShadow = true
+        window.isMovable = false
+        window.isOpaque = false
+        window.isReleasedWhenClosed = false
+        window.level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 2)
+        window.acceptsMouseMovedEvents = true
+
+        hudView.onToggleLight = onToggleLight
+        hudView.onConfigChange = onConfigChange
+        hudView.onExpansionChange = { [weak self] expanded in
+            self?.setExpanded(expanded)
+        }
+        hudView.onMouseEnteredHUD = { [weak self] in
+            self?.handleMouseEntered()
+        }
+        hudView.onMouseExitedHUD = { [weak self] in
+            self?.handleMouseExited()
+        }
+        hudView.onActivity = { [weak self] in
+            self?.handleHUDActivity()
+        }
+        hudView.onDragBegan = { [weak self] in
+            self?.beginDrag()
+        }
+        hudView.onDragMoved = { [weak self] origin in
+            self?.move(to: origin)
+        }
+        hudView.onDragEnded = { [weak self] in
+            self?.endDrag()
+        }
+
+        window.orderFrontRegardless()
+        scheduleAutoHide()
+    }
+
+    func update(config: SpotlightConfig) {
+        hudView.update(config: config)
+    }
+
+    func updateLightState(_ isLightOn: Bool) {
+        hudView.updateLightState(isLightOn)
+    }
+
+    func show() {
+        window.orderFrontRegardless()
+        reveal()
+        scheduleAutoHide()
+    }
+
+    private func setExpanded(_ expanded: Bool) {
+        reveal()
+
+        let newSize = expanded ? FloatingHUDView.expandedContentSize : FloatingHUDView.collapsedContentSize
+        var frame = window.frame
+        let oldMaxX = frame.maxX
+        let oldMaxY = frame.maxY
+        frame.size = newSize
+
+        if dockedEdge == .right {
+            frame.origin.x = oldMaxX - newSize.width
+        }
+
+        if dockedEdge == .top {
+            frame.origin.y = oldMaxY - newSize.height
+        }
+
+        animate(to: clampedFrame(frame))
+
+        if expanded {
+            autoHideTimer?.invalidate()
+        } else {
+            scheduleAutoHide()
+        }
+    }
+
+    private func beginDrag() {
+        autoHideTimer?.invalidate()
+        dockedEdge = nil
+        isTucked = false
+        window.alphaValue = 1
+    }
+
+    private func move(to origin: NSPoint) {
+        var frame = window.frame
+        frame.origin = origin
+        window.setFrame(frame, display: true)
+    }
+
+    private func endDrag() {
+        animate(to: clampedFrame(window.frame))
+        scheduleAutoHide()
+    }
+
+    private func reveal() {
+        autoHideTimer?.invalidate()
+        window.orderFrontRegardless()
+        window.alphaValue = 1
+
+        guard isTucked, let dockedEdge else {
+            return
+        }
+
+        isTucked = false
+        animate(to: exposedFrame(from: dockedEdge))
+    }
+
+    private func handleMouseEntered() {
+        reveal()
+    }
+
+    private func handleMouseExited() {
+        scheduleAutoHide()
+    }
+
+    private func handleHUDActivity() {
+        scheduleAutoHide()
+    }
+
+    private func scheduleAutoHide(after delay: TimeInterval = FloatingHUDController.autoHideDelay) {
+        autoHideTimer?.invalidate()
+
+        guard !hudView.isExpanded else {
+            return
+        }
+
+        autoHideTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+            self?.tuckToNearestEdge()
+        }
+    }
+
+    private func tuckToNearestEdge() {
+        guard !hudView.isExpanded else {
+            return
+        }
+
+        let edge = nearestEdge(for: window.frame)
+        dockedEdge = edge
+        isTucked = true
+        window.alphaValue = 0.88
+        animate(to: tuckedFrame(for: edge))
+    }
+
+    private func animate(to frame: NSRect) {
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.22
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            window.animator().setFrame(frame, display: true)
+        }
+    }
+
+    private func clampedFrame(_ frame: NSRect) -> NSRect {
+        let visibleFrame = screen(for: frame).visibleFrame
+        return NSRect(
+            x: frame.origin.x.clamped(to: visibleFrame.minX...max(visibleFrame.minX, visibleFrame.maxX - frame.width)),
+            y: frame.origin.y.clamped(to: visibleFrame.minY...max(visibleFrame.minY, visibleFrame.maxY - frame.height)),
+            width: frame.width,
+            height: frame.height
+        )
+    }
+
+    private func nearestEdge(for frame: NSRect) -> HUDEdge {
+        let visibleFrame = screen(for: frame).visibleFrame
+        let distances: [(HUDEdge, CGFloat)] = [
+            (.left, abs(frame.minX - visibleFrame.minX)),
+            (.right, abs(visibleFrame.maxX - frame.maxX)),
+            (.bottom, abs(frame.minY - visibleFrame.minY)),
+            (.top, abs(visibleFrame.maxY - frame.maxY))
+        ]
+
+        return distances.min { $0.1 < $1.1 }?.0 ?? .right
+    }
+
+    private func exposedFrame(from edge: HUDEdge) -> NSRect {
+        let size = window.frame.size
+        let visibleFrame = screen(for: window.frame).visibleFrame
+        var frame = window.frame
+        frame.size = size
+
+        switch edge {
+        case .left:
+            frame.origin.x = visibleFrame.minX + 10
+            frame.origin.y = frame.origin.y.clamped(to: visibleFrame.minY + 10...visibleFrame.maxY - size.height - 10)
+        case .right:
+            frame.origin.x = visibleFrame.maxX - size.width - 10
+            frame.origin.y = frame.origin.y.clamped(to: visibleFrame.minY + 10...visibleFrame.maxY - size.height - 10)
+        case .bottom:
+            frame.origin.y = visibleFrame.minY + 10
+            frame.origin.x = frame.origin.x.clamped(to: visibleFrame.minX + 10...visibleFrame.maxX - size.width - 10)
+        case .top:
+            frame.origin.y = visibleFrame.maxY - size.height - 10
+            frame.origin.x = frame.origin.x.clamped(to: visibleFrame.minX + 10...visibleFrame.maxX - size.width - 10)
+        }
+
+        return frame
+    }
+
+    private func tuckedFrame(for edge: HUDEdge) -> NSRect {
+        let size = FloatingHUDView.collapsedContentSize
+        let visibleFrame = screen(for: window.frame).visibleFrame
+        var frame = window.frame
+        frame.size = size
+
+        switch edge {
+        case .left:
+            frame.origin.x = visibleFrame.minX - size.width + Self.peekSize
+            frame.origin.y = frame.origin.y.clamped(to: visibleFrame.minY + 10...visibleFrame.maxY - size.height - 10)
+        case .right:
+            frame.origin.x = visibleFrame.maxX - Self.peekSize
+            frame.origin.y = frame.origin.y.clamped(to: visibleFrame.minY + 10...visibleFrame.maxY - size.height - 10)
+        case .bottom:
+            frame.origin.y = visibleFrame.minY - size.height + Self.peekSize
+            frame.origin.x = frame.origin.x.clamped(to: visibleFrame.minX + 10...visibleFrame.maxX - size.width - 10)
+        case .top:
+            frame.origin.y = visibleFrame.maxY - Self.peekSize
+            frame.origin.x = frame.origin.x.clamped(to: visibleFrame.minX + 10...visibleFrame.maxX - size.width - 10)
+        }
+
+        return frame
+    }
+
+    private func screen(for frame: NSRect) -> NSScreen {
+        let intersectingScreens = NSScreen.screens.map { screen in
+            (screen, frame.intersection(screen.frame).area)
+        }
+
+        if let bestMatch = intersectingScreens.max(by: { $0.1 < $1.1 }),
+           bestMatch.1 > 0 {
+            return bestMatch.0
+        }
+
+        let center = NSPoint(x: frame.midX, y: frame.midY)
+        return NSScreen.screens.first { $0.frame.contains(center) } ?? NSScreen.main ?? NSScreen.screens[0]
+    }
+
+    private static func defaultFrame(size: NSSize) -> NSRect {
+        let visibleFrame = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        return NSRect(
+            x: visibleFrame.maxX - size.width - 26,
+            y: visibleFrame.midY - size.height / 2,
+            width: size.width,
+            height: size.height
+        )
     }
 }
 
@@ -997,6 +1652,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var hotKeyDefinition = SettingsStore.loadHotKey()
     private var hotKey: GlobalHotKey?
     private var overlayController: OverlayController?
+    private var hudController: FloatingHUDController?
     private var shortcutRecorderPanel: NSPanel?
     private var firstRunPopover: NSPopover?
     private var statusItem: NSStatusItem?
@@ -1016,6 +1672,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         overlayController = OverlayController(config: config)
         setupStatusItem()
+        hudController = FloatingHUDController(
+            config: config,
+            isLightOn: overlayController?.isEnabled ?? false,
+            onToggleLight: { [weak self] in
+                self?.toggleReadingLight()
+            },
+            onConfigChange: { [weak self] updatedConfig in
+                self?.config = updatedConfig
+                self?.applyConfigChange()
+            }
+        )
         _ = registerHotKey(hotKeyDefinition)
 
         refreshMenuState()
@@ -1059,6 +1726,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         self.shortcutItem = shortcutItem
         menu.addItem(shortcutItem)
 
+        let showHUDItem = NSMenuItem(title: "Show Floating HUD", action: #selector(showFloatingHUD), keyEquivalent: "")
+        showHUDItem.target = self
+        menu.addItem(showHUDItem)
+
         let setShortcutItem = NSMenuItem(title: "Set Shortcut...", action: #selector(showShortcutRecorder), keyEquivalent: "")
         setShortcutItem.target = self
         menu.addItem(setShortcutItem)
@@ -1069,8 +1740,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         menu.addItem(.separator())
         menu.addItem(makeShapeMenuItem())
-        menu.addItem(makeSliderItem(title: "Width", value: Double(config.width), range: 0...2000, label: &widthLabel, action: #selector(widthChanged(_:))))
-        menu.addItem(makeSliderItem(title: "Height", value: Double(config.height), range: 0...2000, label: &heightLabel, action: #selector(heightChanged(_:))))
+        menu.addItem(makeSliderItem(title: "Width", value: Double(config.width), range: 0...3000, label: &widthLabel, action: #selector(widthChanged(_:))))
+        menu.addItem(makeSliderItem(title: "Height", value: Double(config.height), range: 0...3000, label: &heightLabel, action: #selector(heightChanged(_:))))
         menu.addItem(makeSliderItem(title: "Soft Edge", value: Double(config.feather), range: 0...240, label: &featherLabel, action: #selector(featherChanged(_:))))
         menu.addItem(makeSliderItem(title: "Darkness", value: Double(config.opacity), range: 0.35...0.90, label: &opacityLabel, action: #selector(opacityChanged(_:))))
         menu.addItem(makeSliderItem(title: "Left / Right", value: Double(config.cursorXOffset), range: -220...220, label: &horizontalOffsetLabel, action: #selector(horizontalOffsetChanged(_:))))
@@ -1139,6 +1810,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     ) -> NSMenuItem {
         let item = NSMenuItem()
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 268, height: 52))
+        container.autoresizingMask = [.width]
 
         let titleLabel = NSTextField(labelWithString: title)
         titleLabel.font = .systemFont(ofSize: 12, weight: .medium)
@@ -1148,13 +1820,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let valueLabel = NSTextField(labelWithString: "")
         valueLabel.alignment = .right
         valueLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-        valueLabel.frame = NSRect(x: 154, y: 29, width: 96, height: 16)
+        valueLabel.frame = NSRect(x: 154, y: 29, width: 100, height: 16)
+        valueLabel.autoresizingMask = [.minXMargin]
         container.addSubview(valueLabel)
         label = valueLabel
 
         let slider = NSSlider(value: value, minValue: range.lowerBound, maxValue: range.upperBound, target: self, action: action)
         slider.isContinuous = true
-        slider.frame = NSRect(x: 12, y: 6, width: 242, height: 20)
+        slider.frame = NSRect(x: 12, y: 6, width: 244, height: 20)
+        slider.autoresizingMask = [.width]
         container.addSubview(slider)
 
         item.view = container
@@ -1167,6 +1841,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
 
         overlayController.setEnabled(!overlayController.isEnabled)
+        hudController?.updateLightState(overlayController.isEnabled)
         refreshMenuState()
     }
 
@@ -1277,6 +1952,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.terminate(nil)
     }
 
+    @objc private func showFloatingHUD() {
+        hudController?.show()
+    }
+
     @objc private func openSupportPage() {
         guard let url = URL(string: "https://github.com/sponsors/andrewLi1994") else {
             return
@@ -1288,6 +1967,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func applyConfigChange() {
         SettingsStore.save(config)
         overlayController?.update(config: config)
+        hudController?.update(config: config)
         refreshShapeItems()
         refreshSliderLabels()
     }
@@ -1386,6 +2066,16 @@ private extension CGFloat {
 private extension NSPoint {
     func distance(to point: NSPoint) -> CGFloat {
         hypot(x - point.x, y - point.y)
+    }
+}
+
+private extension NSRect {
+    var area: CGFloat {
+        guard !isNull, !isEmpty else {
+            return 0
+        }
+
+        return width * height
     }
 }
 
