@@ -1,0 +1,33 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build release package
+        run: bash scripts/package-release.sh
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            gh release upload "$TAG_NAME" dist/LightoffReading.zip dist/LightoffReading.zip.sha256 --clobber
+          else
+            gh release create "$TAG_NAME" dist/LightoffReading.zip dist/LightoffReading.zip.sha256 \
+              --title "$TAG_NAME" \
+              --notes "Download LightoffReading.zip, or install from Terminal with the command in README.md."
+          fi
