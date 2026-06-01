@@ -2,6 +2,8 @@
 
 A lightweight macOS menu bar app that dims the screen and keeps a soft reading spotlight above the mouse cursor.
 
+The public release is a universal macOS app for both Apple Silicon and Intel Macs.
+
 ## Install
 
 ```sh
@@ -18,6 +20,12 @@ The script creates:
 
 ```text
 .build/release/LightoffReading.app
+```
+
+By default, the app bundle contains a universal binary. For a faster local native-only build:
+
+```sh
+UNIVERSAL_BUILD=0 bash scripts/build-app.sh
 ```
 
 ## Run

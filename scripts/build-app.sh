@@ -4,16 +4,33 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="LightoffReading"
 BUNDLE_ID="${BUNDLE_ID:-com.local.LightoffReading}"
+APP_VERSION="${APP_VERSION:-}"
+UNIVERSAL_BUILD="${UNIVERSAL_BUILD:-1}"
 APP_PATH="$ROOT/.build/release/$APP_NAME.app"
 BINARY_PATH="$ROOT/.build/release/$APP_NAME"
+ARM64_BINARY_PATH="$ROOT/.build/arm64-apple-macosx/release/$APP_NAME"
+X86_64_BINARY_PATH="$ROOT/.build/x86_64-apple-macosx/release/$APP_NAME"
 ICON_PATH="$ROOT/Assets/AppIcon.icns"
 
-cd "$ROOT"
-swift build -c release >&2
+if [[ -z "$APP_VERSION" && "${GITHUB_REF_NAME:-}" == v* ]]; then
+    APP_VERSION="${GITHUB_REF_NAME#v}"
+fi
 
+APP_VERSION="${APP_VERSION:-0.1.1}"
+
+cd "$ROOT"
 rm -rf "$APP_PATH"
 mkdir -p "$APP_PATH/Contents/MacOS" "$APP_PATH/Contents/Resources"
-cp "$BINARY_PATH" "$APP_PATH/Contents/MacOS/$APP_NAME"
+
+if [[ "$UNIVERSAL_BUILD" == "1" ]]; then
+    swift build -c release --arch arm64 >&2
+    swift build -c release --arch x86_64 >&2
+    /usr/bin/lipo -create "$ARM64_BINARY_PATH" "$X86_64_BINARY_PATH" -output "$APP_PATH/Contents/MacOS/$APP_NAME"
+else
+    swift build -c release >&2
+    cp "$BINARY_PATH" "$APP_PATH/Contents/MacOS/$APP_NAME"
+fi
+
 chmod +x "$APP_PATH/Contents/MacOS/$APP_NAME"
 
 if [[ -f "$ICON_PATH" ]]; then
@@ -40,7 +57,7 @@ cat > "$APP_PATH/Contents/Info.plist" <<PLIST
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
+    <string>$APP_VERSION</string>
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>LSMinimumSystemVersion</key>
