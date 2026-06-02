@@ -42,7 +42,7 @@ bash scripts/install.sh
 
 The script builds the app, copies it to `/Applications/LightoffReading.app`, removes local quarantine metadata when present, and opens it.
 
-Use `Shift-Control-Command-L` to toggle the reading light by default.
+Use `Control-Option-Command-/` to toggle the reading light by default.
 
 Use `Set Shortcut...` in the menu bar item to record a different shortcut.
 

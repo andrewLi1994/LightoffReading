@@ -33,9 +33,9 @@ struct SpotlightConfig: Equatable {
 
 struct HotKeyDefinition: Equatable {
     static let defaultValue = HotKeyDefinition(
-        keyCode: UInt32(kVK_ANSI_L),
-        carbonModifiers: UInt32(shiftKey | controlKey | cmdKey),
-        displayKey: "L"
+        keyCode: UInt32(kVK_ANSI_Slash),
+        carbonModifiers: UInt32(controlKey | optionKey | cmdKey),
+        displayKey: "/"
     )
 
     var keyCode: UInt32
