@@ -1732,15 +1732,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem?
     private var toggleItem: NSMenuItem?
     private var shortcutItem: NSMenuItem?
-    private var shapeItems: [SpotlightShape: NSMenuItem] = [:]
-    private var widthLabel: NSTextField?
-    private var heightLabel: NSTextField?
-    private var widthSlider: NSSlider?
-    private var heightSlider: NSSlider?
-    private var featherLabel: NSTextField?
-    private var opacityLabel: NSTextField?
-    private var horizontalOffsetLabel: NSTextField?
-    private var offsetLabel: NSTextField?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -1815,15 +1806,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         menu.addItem(resetShortcutItem)
 
         menu.addItem(.separator())
-        menu.addItem(makeShapeMenuItem())
-        menu.addItem(makeSliderItem(title: "Width", symbolName: "arrow.left.and.right", value: Double(config.width), range: 0...3000, label: &widthLabel, slider: &widthSlider, action: #selector(widthChanged(_:))))
-        menu.addItem(makeSliderItem(title: "Height", symbolName: "arrow.up.and.down", value: Double(config.height), range: 0...3000, label: &heightLabel, slider: &heightSlider, action: #selector(heightChanged(_:))))
-        menu.addItem(makeSliderItem(title: "Soft Edge", symbolName: "circle.dashed", value: Double(config.feather), range: 0...240, label: &featherLabel, action: #selector(featherChanged(_:))))
-        menu.addItem(makeSliderItem(title: "Darkness", symbolName: "circle.lefthalf.filled", value: Double(config.opacity), range: 0.35...0.90, label: &opacityLabel, action: #selector(opacityChanged(_:))))
-        menu.addItem(makeSliderItem(title: "Left / Right", symbolName: "arrow.left.arrow.right", value: Double(config.cursorXOffset), range: -220...220, label: &horizontalOffsetLabel, action: #selector(horizontalOffsetChanged(_:))))
-        menu.addItem(makeSliderItem(title: "Above Cursor", symbolName: "arrow.up", value: Double(config.cursorYOffset), range: 20...220, label: &offsetLabel, action: #selector(offsetChanged(_:))))
-
-        menu.addItem(.separator())
 
         let supportItem = NSMenuItem(title: "Support Project", action: #selector(openSupportPage), keyEquivalent: "")
         supportItem.target = self
@@ -1857,86 +1839,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         firstRunPopover = popover
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         SettingsStore.markMenuBarHintShown()
-    }
-
-    private func makeShapeMenuItem() -> NSMenuItem {
-        shapeItems.removeAll()
-
-        let item = NSMenuItem(title: "Shape", action: nil, keyEquivalent: "")
-        let submenu = NSMenu()
-
-        for shape in SpotlightShape.allCases {
-            let shapeItem = NSMenuItem(title: shape.displayName, action: #selector(shapeChanged(_:)), keyEquivalent: "")
-            shapeItem.target = self
-            shapeItem.representedObject = shape.rawValue
-            shapeItems[shape] = shapeItem
-            submenu.addItem(shapeItem)
-        }
-
-        item.submenu = submenu
-        return item
-    }
-
-    private func makeSliderItem(
-        title: String,
-        symbolName: String,
-        value: Double,
-        range: ClosedRange<Double>,
-        label: inout NSTextField?,
-        slider: inout NSSlider?,
-        action: Selector
-    ) -> NSMenuItem {
-        let item = NSMenuItem()
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 268, height: 52))
-        container.autoresizingMask = [.width]
-
-        let iconLeft: CGFloat = 14
-        let contentLeft: CGFloat = 36
-
-        let iconView = NSImageView(frame: NSRect(x: iconLeft, y: 7, width: 18, height: 18))
-        if let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: title) {
-            image.isTemplate = true
-            iconView.image = image
-        }
-        iconView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
-        iconView.contentTintColor = .secondaryLabelColor
-        iconView.imageAlignment = .alignCenter
-        container.addSubview(iconView)
-
-        let titleLabel = NSTextField(labelWithString: title)
-        titleLabel.font = .systemFont(ofSize: 12, weight: .medium)
-        titleLabel.frame = NSRect(x: contentLeft, y: 29, width: 120, height: 16)
-        container.addSubview(titleLabel)
-
-        let valueLabel = NSTextField(labelWithString: "")
-        valueLabel.alignment = .right
-        valueLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-        valueLabel.frame = NSRect(x: 154, y: 29, width: 100, height: 16)
-        valueLabel.autoresizingMask = [.minXMargin]
-        container.addSubview(valueLabel)
-        label = valueLabel
-
-        let sliderControl = NSSlider(value: value, minValue: range.lowerBound, maxValue: range.upperBound, target: self, action: action)
-        sliderControl.isContinuous = true
-        sliderControl.frame = NSRect(x: contentLeft - 2, y: 6, width: 244 - (contentLeft - 14), height: 20)
-        sliderControl.autoresizingMask = [.width]
-        container.addSubview(sliderControl)
-        slider = sliderControl
-
-        item.view = container
-        return item
-    }
-
-    private func makeSliderItem(
-        title: String,
-        symbolName: String,
-        value: Double,
-        range: ClosedRange<Double>,
-        label: inout NSTextField?,
-        action: Selector
-    ) -> NSMenuItem {
-        var unused: NSSlider?
-        return makeSliderItem(title: title, symbolName: symbolName, value: value, range: range, label: &label, slider: &unused, action: action)
     }
 
     @objc private func toggleReadingLight() {
@@ -2012,46 +1914,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         saveShortcut(HotKeyDefinition.defaultValue)
     }
 
-    @objc private func widthChanged(_ sender: NSSlider) {
-        config.width = CGFloat(sender.doubleValue.rounded())
-        applyConfigChange()
-    }
-
-    @objc private func heightChanged(_ sender: NSSlider) {
-        config.height = CGFloat(sender.doubleValue.rounded())
-        applyConfigChange()
-    }
-
-    @objc private func shapeChanged(_ sender: NSMenuItem) {
-        guard let rawValue = sender.representedObject as? String,
-              let shape = SpotlightShape(rawValue: rawValue) else {
-            return
-        }
-
-        config.shape = shape
-        applyConfigChange()
-    }
-
-    @objc private func featherChanged(_ sender: NSSlider) {
-        config.feather = CGFloat(sender.doubleValue.rounded())
-        applyConfigChange()
-    }
-
-    @objc private func opacityChanged(_ sender: NSSlider) {
-        config.opacity = CGFloat(sender.doubleValue)
-        applyConfigChange()
-    }
-
-    @objc private func horizontalOffsetChanged(_ sender: NSSlider) {
-        config.cursorXOffset = CGFloat(sender.doubleValue.rounded())
-        applyConfigChange()
-    }
-
-    @objc private func offsetChanged(_ sender: NSSlider) {
-        config.cursorYOffset = CGFloat(sender.doubleValue.rounded())
-        applyConfigChange()
-    }
-
     @objc private func quit() {
         NSApp.terminate(nil)
     }
@@ -2072,8 +1934,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         SettingsStore.save(config)
         overlayController?.update(config: config)
         hudController?.update(config: config)
-        refreshShapeItems()
-        refreshSliderLabels()
     }
 
     @discardableResult
@@ -2130,33 +1990,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         } else {
             shortcutItem?.title = "Shortcut: \(hotKeyDefinition.displayName)"
         }
-
-        refreshShapeItems()
-        refreshSliderLabels()
-    }
-
-    private func refreshShapeItems() {
-        for (shape, item) in shapeItems {
-            item.state = shape == config.shape ? .on : .off
-        }
-    }
-
-    private func refreshSliderLabels() {
-        let isHStrip = config.shape == .horizontalStrip
-        let isVStrip = config.shape == .verticalStrip
-
-        widthLabel?.stringValue = isHStrip ? "Auto" : "\(Int(config.width)) px"
-        widthLabel?.textColor = isHStrip ? .tertiaryLabelColor : .labelColor
-        widthSlider?.isEnabled = !isHStrip
-
-        heightLabel?.stringValue = isVStrip ? "Auto" : "\(Int(config.height)) px"
-        heightLabel?.textColor = isVStrip ? .tertiaryLabelColor : .labelColor
-        heightSlider?.isEnabled = !isVStrip
-
-        featherLabel?.stringValue = "\(Int(config.feather)) px"
-        opacityLabel?.stringValue = "\(Int((config.opacity * 100).rounded()))%"
-        horizontalOffsetLabel?.stringValue = "\(Int(config.cursorXOffset)) px"
-        offsetLabel?.stringValue = "\(Int(config.cursorYOffset)) px"
     }
 }
 
