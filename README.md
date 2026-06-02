@@ -46,7 +46,7 @@ Use `Control-Option-Command-/` to toggle the reading light by default.
 
 Use `Set Shortcut...` in the menu bar item to record a different shortcut.
 
-The menu bar item also exposes controls for shape, width, height, edge softness, darkness, horizontal offset, and vertical cursor offset.
+Use `Show Floating HUD` for shape, width, height, edge softness, darkness, horizontal offset, and vertical offset controls.
 
 On first launch, the app shows a small one-time hint under the menu bar icon so users know where the controls live.
 

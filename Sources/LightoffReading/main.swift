@@ -186,14 +186,14 @@ enum SettingsStore {
     static func load() -> SpotlightConfig {
         let defaults = UserDefaults.standard
         defaults.register(defaults: [
-            shapeKey: SpotlightShape.rectangle.rawValue,
+            shapeKey: SpotlightShape.horizontalStrip.rawValue,
             radiusKey: 120.0,
             widthKey: 880.0,
-            heightKey: 46.0,
-            featherKey: 46.0,
-            opacityKey: 0.72,
-            cursorXOffsetKey: -40.0,
-            cursorYOffsetKey: 90.0
+            heightKey: 41.0,
+            featherKey: 44.0,
+            opacityKey: 0.62,
+            cursorXOffsetKey: -220.0,
+            cursorYOffsetKey: 20.0
         ])
         let migratedSize = defaults.double(forKey: radiusKey) * 2
         let width = defaults.object(forKey: widthKey) == nil ? migratedSize : defaults.double(forKey: widthKey)
@@ -846,6 +846,7 @@ final class HUDSliderRow: NSView {
 final class FloatingHUDView: NSVisualEffectView {
     private static let collapsedSize = NSSize(width: 118, height: 52)
     private static let expandedSize = NSSize(width: 308, height: 416)
+    private static let cornerRadius: CGFloat = 18
 
     var onToggleLight: (() -> Void)?
     var onExpansionChange: ((Bool) -> Void)?
@@ -870,9 +871,12 @@ final class FloatingHUDView: NSVisualEffectView {
     private var opacityRow: HUDSliderRow!
     private var horizontalOffsetRow: HUDSliderRow!
     private var verticalOffsetRow: HUDSliderRow!
+    private var handleImageView: NSImageView!
     private var expandedViews: [NSView] = []
     private(set) var isExpanded = false
     private var isLightOn: Bool
+    private var isEdgeHandleMode = false
+    private var handleEdge: HUDEdge = .right
 
     static var collapsedContentSize: NSSize {
         collapsedSize
@@ -891,13 +895,14 @@ final class FloatingHUDView: NSVisualEffectView {
         blendingMode = .behindWindow
         state = .active
         wantsLayer = true
-        layer?.cornerRadius = 18
+        layer?.cornerRadius = Self.cornerRadius
         layer?.masksToBounds = true
 
         setupControls()
         updateLightState(isLightOn)
         update(config: config)
         setExpanded(false, notify: false)
+        updateRoundedMask()
     }
 
     required init?(coder: NSCoder) {
@@ -910,6 +915,12 @@ final class FloatingHUDView: NSVisualEffectView {
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         true
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        updateRoundedMask()
+        layoutHandleImage()
     }
 
     override func updateTrackingAreas() {
@@ -1007,7 +1018,7 @@ final class FloatingHUDView: NSVisualEffectView {
     func setExpanded(_ expanded: Bool, notify: Bool = true) {
         isExpanded = expanded
         frame.size = expanded ? Self.expandedSize : Self.collapsedSize
-        expandedViews.forEach { $0.isHidden = !expanded }
+        expandedViews.forEach { $0.isHidden = isEdgeHandleMode || !expanded }
 
         if let image = NSImage(
             systemSymbolName: expanded ? "slider.horizontal.3" : "slider.horizontal.3",
@@ -1023,6 +1034,78 @@ final class FloatingHUDView: NSVisualEffectView {
         if notify {
             onExpansionChange?(expanded)
         }
+    }
+
+    fileprivate func setEdgeHandleMode(_ enabled: Bool, edge: HUDEdge?) {
+        isEdgeHandleMode = enabled
+
+        if let edge {
+            handleEdge = edge
+        }
+
+        powerButton.isHidden = enabled
+        adjustButton.isHidden = enabled
+        expandedViews.forEach { $0.isHidden = enabled || !isExpanded }
+        handleImageView.isHidden = !enabled
+
+        if enabled {
+            updateHandleImage()
+        }
+
+        layoutHandleImage()
+        updateRoundedMask()
+    }
+
+    private func updateRoundedMask() {
+        guard bounds.width > 0, bounds.height > 0 else {
+            return
+        }
+
+        let mask = NSImage(size: bounds.size)
+        mask.lockFocus()
+        NSColor.black.setFill()
+        let radius = min(Self.cornerRadius, min(bounds.width, bounds.height) / 2)
+        NSBezierPath(
+            roundedRect: NSRect(origin: .zero, size: bounds.size),
+            xRadius: radius,
+            yRadius: radius
+        ).fill()
+        mask.unlockFocus()
+        maskImage = mask
+    }
+
+    private func updateHandleImage() {
+        let symbolName: String
+
+        switch handleEdge {
+        case .left:
+            symbolName = "chevron.right"
+        case .right:
+            symbolName = "chevron.left"
+        case .top:
+            symbolName = "chevron.down"
+        case .bottom:
+            symbolName = "chevron.up"
+        }
+
+        if let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "Show HUD") {
+            image.isTemplate = true
+            handleImageView.image = image
+        }
+    }
+
+    private func layoutHandleImage() {
+        guard handleImageView != nil else {
+            return
+        }
+
+        let iconSize = NSSize(width: 18, height: 18)
+        handleImageView.frame = NSRect(
+            x: (bounds.width - iconSize.width) / 2,
+            y: (bounds.height - iconSize.height) / 2,
+            width: iconSize.width,
+            height: iconSize.height
+        )
     }
 
     private func setupControls() {
@@ -1090,7 +1173,7 @@ final class FloatingHUDView: NSVisualEffectView {
         expandedViews.append(opacityRow)
         addSubview(opacityRow)
 
-        horizontalOffsetRow = makeRow(title: "Left / Right", symbolName: "arrow.left.arrow.right", value: Double(config.cursorXOffset), range: -220...220, formatter: pixelFormatter) { [weak self] value in
+        horizontalOffsetRow = makeRow(title: "Left / Right", symbolName: "arrow.left.arrow.right", value: Double(config.cursorXOffset), range: -500...500, formatter: pixelFormatter) { [weak self] value in
             self?.config.cursorXOffset = CGFloat(value.rounded())
             self?.emitConfigChange()
         }
@@ -1098,13 +1181,21 @@ final class FloatingHUDView: NSVisualEffectView {
         expandedViews.append(horizontalOffsetRow)
         addSubview(horizontalOffsetRow)
 
-        verticalOffsetRow = makeRow(title: "Above Cursor", symbolName: "arrow.up", value: Double(config.cursorYOffset), range: 20...220, formatter: pixelFormatter) { [weak self] value in
+        verticalOffsetRow = makeRow(title: "Up / Down", symbolName: "arrow.up.arrow.down", value: Double(config.cursorYOffset), range: -500...500, formatter: pixelFormatter) { [weak self] value in
             self?.config.cursorYOffset = CGFloat(value.rounded())
             self?.emitConfigChange()
         }
         verticalOffsetRow.frame.origin = NSPoint(x: 20, y: 58)
         expandedViews.append(verticalOffsetRow)
         addSubview(verticalOffsetRow)
+
+        handleImageView = NSImageView(frame: .zero)
+        handleImageView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 18, weight: .semibold)
+        handleImageView.contentTintColor = .secondaryLabelColor
+        handleImageView.imageAlignment = .alignCenter
+        handleImageView.isHidden = true
+        addSubview(handleImageView)
+        layoutHandleImage()
     }
 
     private func makeIconButton(symbol: String, action: Selector) -> NSButton {
@@ -1167,14 +1258,17 @@ final class FloatingHUDView: NSVisualEffectView {
 }
 
 final class FloatingHUDController {
-    private static let peekSize: CGFloat = 24
     private static let autoHideDelay: TimeInterval = 3.2
+    private static let edgeInset: CGFloat = 8
+    private static let exposedInset: CGFloat = 14
+    private static let handleSize = NSSize(width: 28, height: 62)
 
     private let window: FloatingHUDWindow
     private let hudView: FloatingHUDView
     private var autoHideTimer: Timer?
     private var dockedEdge: HUDEdge?
     private var isTucked = false
+    private(set) var isVisible = true
 
     init(
         config: SpotlightConfig,
@@ -1240,12 +1334,45 @@ final class FloatingHUDController {
     }
 
     func show() {
+        isVisible = true
+        hudView.setEdgeHandleMode(false, edge: nil)
+        hudView.setExpanded(false, notify: false)
+        isTucked = false
+
+        if !window.isVisible {
+            var frame = window.frame
+            frame.size = FloatingHUDView.collapsedContentSize
+            window.setFrame(clampedFrame(frame), display: false)
+        }
+
         window.orderFrontRegardless()
-        reveal()
+        window.alphaValue = 1
         scheduleAutoHide()
     }
 
+    func hide() {
+        autoHideTimer?.invalidate()
+        isVisible = false
+        isTucked = false
+        dockedEdge = nil
+        hudView.setEdgeHandleMode(false, edge: nil)
+        hudView.setExpanded(false, notify: false)
+        window.orderOut(nil)
+    }
+
+    func toggleVisibility() {
+        if isVisible {
+            hide()
+        } else {
+            show()
+        }
+    }
+
     private func setExpanded(_ expanded: Bool) {
+        guard isVisible else {
+            return
+        }
+
         reveal()
 
         let newSize = expanded ? FloatingHUDView.expandedContentSize : FloatingHUDView.collapsedContentSize
@@ -1272,9 +1399,14 @@ final class FloatingHUDController {
     }
 
     private func beginDrag() {
+        guard isVisible else {
+            return
+        }
+
         autoHideTimer?.invalidate()
         dockedEdge = nil
         isTucked = false
+        hudView.setEdgeHandleMode(false, edge: nil)
         window.alphaValue = 1
     }
 
@@ -1290,6 +1422,10 @@ final class FloatingHUDController {
     }
 
     private func reveal() {
+        guard isVisible else {
+            return
+        }
+
         autoHideTimer?.invalidate()
         window.orderFrontRegardless()
         window.alphaValue = 1
@@ -1299,7 +1435,8 @@ final class FloatingHUDController {
         }
 
         isTucked = false
-        animate(to: exposedFrame(from: dockedEdge))
+        hudView.setEdgeHandleMode(false, edge: nil)
+        animate(to: exposedFrame(from: dockedEdge, size: FloatingHUDView.collapsedContentSize))
     }
 
     private func handleMouseEntered() {
@@ -1317,7 +1454,7 @@ final class FloatingHUDController {
     private func scheduleAutoHide(after delay: TimeInterval = FloatingHUDController.autoHideDelay) {
         autoHideTimer?.invalidate()
 
-        guard !hudView.isExpanded else {
+        guard isVisible, !isTucked, !hudView.isExpanded else {
             return
         }
 
@@ -1327,22 +1464,23 @@ final class FloatingHUDController {
     }
 
     private func tuckToNearestEdge() {
-        guard !hudView.isExpanded else {
+        guard isVisible, !isTucked, !hudView.isExpanded else {
             return
         }
 
-        let edge = nearestEdge(for: window.frame)
+        let edge = nearestHorizontalEdge(for: window.frame)
         dockedEdge = edge
         isTucked = true
-        window.alphaValue = 0.88
-        animate(to: tuckedFrame(for: edge))
+        hudView.setEdgeHandleMode(true, edge: edge)
+        animate(to: tuckedFrame(for: edge), alpha: 0.94)
     }
 
-    private func animate(to frame: NSRect) {
+    private func animate(to frame: NSRect, alpha: CGFloat = 1) {
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.22
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            context.duration = 0.24
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             window.animator().setFrame(frame, display: true)
+            window.animator().alphaValue = alpha
         }
     }
 
@@ -1356,60 +1494,58 @@ final class FloatingHUDController {
         )
     }
 
-    private func nearestEdge(for frame: NSRect) -> HUDEdge {
+    private func nearestHorizontalEdge(for frame: NSRect) -> HUDEdge {
         let visibleFrame = screen(for: frame).visibleFrame
-        let distances: [(HUDEdge, CGFloat)] = [
-            (.left, abs(frame.minX - visibleFrame.minX)),
-            (.right, abs(visibleFrame.maxX - frame.maxX)),
-            (.bottom, abs(frame.minY - visibleFrame.minY)),
-            (.top, abs(visibleFrame.maxY - frame.maxY))
-        ]
 
-        return distances.min { $0.1 < $1.1 }?.0 ?? .right
+        if abs(frame.minX - visibleFrame.minX) < abs(visibleFrame.maxX - frame.maxX) {
+            return .left
+        }
+
+        return .right
     }
 
-    private func exposedFrame(from edge: HUDEdge) -> NSRect {
-        let size = window.frame.size
+    private func exposedFrame(from edge: HUDEdge, size: NSSize) -> NSRect {
         let visibleFrame = screen(for: window.frame).visibleFrame
         var frame = window.frame
         frame.size = size
 
         switch edge {
         case .left:
-            frame.origin.x = visibleFrame.minX + 10
-            frame.origin.y = frame.origin.y.clamped(to: visibleFrame.minY + 10...visibleFrame.maxY - size.height - 10)
+            frame.origin.x = visibleFrame.minX + Self.exposedInset
+            frame.origin.y = frame.origin.y.clamped(to: visibleFrame.minY + Self.exposedInset...visibleFrame.maxY - size.height - Self.exposedInset)
         case .right:
-            frame.origin.x = visibleFrame.maxX - size.width - 10
-            frame.origin.y = frame.origin.y.clamped(to: visibleFrame.minY + 10...visibleFrame.maxY - size.height - 10)
+            frame.origin.x = visibleFrame.maxX - size.width - Self.exposedInset
+            frame.origin.y = frame.origin.y.clamped(to: visibleFrame.minY + Self.exposedInset...visibleFrame.maxY - size.height - Self.exposedInset)
         case .bottom:
-            frame.origin.y = visibleFrame.minY + 10
-            frame.origin.x = frame.origin.x.clamped(to: visibleFrame.minX + 10...visibleFrame.maxX - size.width - 10)
+            frame.origin.y = visibleFrame.minY + Self.exposedInset
+            frame.origin.x = frame.origin.x.clamped(to: visibleFrame.minX + Self.exposedInset...visibleFrame.maxX - size.width - Self.exposedInset)
         case .top:
-            frame.origin.y = visibleFrame.maxY - size.height - 10
-            frame.origin.x = frame.origin.x.clamped(to: visibleFrame.minX + 10...visibleFrame.maxX - size.width - 10)
+            frame.origin.y = visibleFrame.maxY - size.height - Self.exposedInset
+            frame.origin.x = frame.origin.x.clamped(to: visibleFrame.minX + Self.exposedInset...visibleFrame.maxX - size.width - Self.exposedInset)
         }
 
         return frame
     }
 
     private func tuckedFrame(for edge: HUDEdge) -> NSRect {
-        let size = FloatingHUDView.collapsedContentSize
+        let size = Self.handleSize
         let visibleFrame = screen(for: window.frame).visibleFrame
+        let centerY = window.frame.midY
         var frame = window.frame
         frame.size = size
 
         switch edge {
         case .left:
-            frame.origin.x = visibleFrame.minX - size.width + Self.peekSize
-            frame.origin.y = frame.origin.y.clamped(to: visibleFrame.minY + 10...visibleFrame.maxY - size.height - 10)
+            frame.origin.x = visibleFrame.minX + Self.edgeInset
+            frame.origin.y = (centerY - size.height / 2).clamped(to: visibleFrame.minY + 10...visibleFrame.maxY - size.height - 10)
         case .right:
-            frame.origin.x = visibleFrame.maxX - Self.peekSize
-            frame.origin.y = frame.origin.y.clamped(to: visibleFrame.minY + 10...visibleFrame.maxY - size.height - 10)
+            frame.origin.x = visibleFrame.maxX - size.width - Self.edgeInset
+            frame.origin.y = (centerY - size.height / 2).clamped(to: visibleFrame.minY + 10...visibleFrame.maxY - size.height - 10)
         case .bottom:
-            frame.origin.y = visibleFrame.minY - size.height + Self.peekSize
+            frame.origin.y = visibleFrame.minY + Self.edgeInset
             frame.origin.x = frame.origin.x.clamped(to: visibleFrame.minX + 10...visibleFrame.maxX - size.width - 10)
         case .top:
-            frame.origin.y = visibleFrame.maxY - Self.peekSize
+            frame.origin.y = visibleFrame.maxY - size.height - Self.edgeInset
             frame.origin.x = frame.origin.x.clamped(to: visibleFrame.minX + 10...visibleFrame.maxX - size.width - 10)
         }
 
@@ -1731,6 +1867,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var firstRunPopover: NSPopover?
     private var statusItem: NSStatusItem?
     private var toggleItem: NSMenuItem?
+    private var hudVisibilityItem: NSMenuItem?
     private var shortcutItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -1793,9 +1930,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         self.shortcutItem = shortcutItem
         menu.addItem(shortcutItem)
 
-        let showHUDItem = NSMenuItem(title: "Show Floating HUD", action: #selector(showFloatingHUD), keyEquivalent: "")
-        showHUDItem.target = self
-        menu.addItem(showHUDItem)
+        let hudVisibilityItem = NSMenuItem(title: "Hide Floating HUD", action: #selector(toggleFloatingHUD), keyEquivalent: "")
+        hudVisibilityItem.target = self
+        self.hudVisibilityItem = hudVisibilityItem
+        menu.addItem(hudVisibilityItem)
 
         let setShortcutItem = NSMenuItem(title: "Set Shortcut...", action: #selector(showShortcutRecorder), keyEquivalent: "")
         setShortcutItem.target = self
@@ -1918,8 +2056,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.terminate(nil)
     }
 
-    @objc private func showFloatingHUD() {
-        hudController?.show()
+    @objc private func toggleFloatingHUD() {
+        hudController?.toggleVisibility()
+        refreshMenuState()
     }
 
     @objc private func openSupportPage() {
@@ -1990,6 +2129,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         } else {
             shortcutItem?.title = "Shortcut: \(hotKeyDefinition.displayName)"
         }
+
+        hudVisibilityItem?.title = hudController?.isVisible == false ? "Show Floating HUD" : "Hide Floating HUD"
     }
 }
 
