@@ -84,6 +84,8 @@ final class CompactHUDWindow: NSPanel {
 final class CompactHUDView: NSView {
     static let handleSize = NSSize(width: 20, height: 36)
     static let toolbarWindowSize = NSSize(width: 68, height: 132)
+    private static let capsuleRetreatInset: CGFloat = 4
+    private static let capsuleRetreatOffset: CGFloat = 8
 
     var onToggleLight: (() -> Void)?
     var onOpenAdjustments: (() -> Void)?
@@ -179,6 +181,52 @@ final class CompactHUDView: NSView {
         layoutForCurrentState()
     }
 
+    fileprivate func prepareForAnimatedTransition(to mode: CompactHUDMode, edge: HUDEdge) {
+        wantsLayer = true
+        capsuleView.wantsLayer = true
+        nubView.wantsLayer = true
+
+        switch mode {
+        case .toolbar:
+            setMode(.toolbar, edge: edge)
+            capsuleView.alphaValue = 0
+            capsuleView.frame = collapsedCapsuleFrame(for: edge)
+            nubView.alphaValue = 0.92
+        case .handle:
+            setMode(.toolbar, edge: edge)
+            capsuleView.alphaValue = 1
+            capsuleView.frame = toolbarCapsuleFrame(for: edge)
+            nubView.alphaValue = 1
+        }
+    }
+
+    fileprivate func animateContentsAlongsideTransition(to mode: CompactHUDMode, edge: HUDEdge) {
+        switch mode {
+        case .toolbar:
+            capsuleView.animator().alphaValue = 1
+            capsuleView.animator().frame = toolbarCapsuleFrame(for: edge)
+            nubView.animator().alphaValue = 1
+        case .handle:
+            capsuleView.animator().alphaValue = 0
+            capsuleView.animator().frame = collapsedCapsuleFrame(for: edge)
+            nubView.animator().alphaValue = 0.96
+        }
+    }
+
+    fileprivate func finishAnimatedTransition(to mode: CompactHUDMode, edge: HUDEdge) {
+        switch mode {
+        case .toolbar:
+            capsuleView.alphaValue = 1
+            capsuleView.frame = toolbarCapsuleFrame(for: edge)
+            nubView.alphaValue = 1
+        case .handle:
+            setMode(.handle, edge: edge)
+            capsuleView.alphaValue = 1
+            capsuleView.frame = toolbarCapsuleFrame(for: edge)
+            nubView.alphaValue = 1
+        }
+    }
+
     private func setupViews() {
         wantsLayer = true
 
@@ -245,16 +293,15 @@ final class CompactHUDView: NSView {
 
         capsuleView.isHidden = false
 
-        let capsuleSize = NSSize(width: 56, height: 132)
         let nubSize = NSSize(width: 20, height: 48)
         let nubY = (Self.toolbarWindowSize.height - nubSize.height) / 2
 
         switch edge {
         case .left:
             nubView.frame = NSRect(x: 0, y: nubY, width: nubSize.width, height: nubSize.height)
-            capsuleView.frame = NSRect(x: 12, y: 0, width: capsuleSize.width, height: capsuleSize.height)
+            capsuleView.frame = toolbarCapsuleFrame(for: .left)
         case .right:
-            capsuleView.frame = NSRect(x: 0, y: 0, width: capsuleSize.width, height: capsuleSize.height)
+            capsuleView.frame = toolbarCapsuleFrame(for: .right)
             nubView.frame = NSRect(x: Self.toolbarWindowSize.width - nubSize.width, y: nubY, width: nubSize.width, height: nubSize.height)
         }
 
@@ -282,10 +329,10 @@ final class CompactHUDView: NSView {
 
     private func updateChevron() {
         let symbolName: String
-        switch edge {
-        case .left:
+        switch (mode, edge) {
+        case (.handle, .left), (.toolbar, .right):
             symbolName = "chevron.right"
-        case .right:
+        case (.handle, .right), (.toolbar, .left):
             symbolName = "chevron.left"
         }
 
@@ -293,6 +340,28 @@ final class CompactHUDView: NSView {
             image.isTemplate = true
             chevronView.image = image
         }
+    }
+
+    private func toolbarCapsuleFrame(for edge: HUDEdge) -> NSRect {
+        switch edge {
+        case .left:
+            return NSRect(x: 12, y: 0, width: 56, height: 132)
+        case .right:
+            return NSRect(x: 0, y: 0, width: 56, height: 132)
+        }
+    }
+
+    private func collapsedCapsuleFrame(for edge: HUDEdge) -> NSRect {
+        var frame = toolbarCapsuleFrame(for: edge).insetBy(dx: Self.capsuleRetreatInset, dy: Self.capsuleRetreatInset)
+
+        switch edge {
+        case .left:
+            frame.origin.x -= Self.capsuleRetreatOffset
+        case .right:
+            frame.origin.x += Self.capsuleRetreatOffset
+        }
+
+        return frame
     }
 
     private func beginDrag(with event: NSEvent) {
@@ -543,8 +612,13 @@ final class CompactHUDController {
         let timing: CAMediaTimingFunctionName = mode == .toolbar ? .easeOut : .easeIn
 
         self.mode = mode
-        hudView.setMode(mode, edge: edge)
         isTransitioning = true
+
+        if animated {
+            hudView.prepareForAnimatedTransition(to: mode, edge: edge)
+        } else {
+            hudView.setMode(mode, edge: edge)
+        }
 
         if !window.isVisible {
             window.setFrame(targetFrame, display: false)
@@ -556,17 +630,20 @@ final class CompactHUDController {
             NSAnimationContext.runAnimationGroup({ context in
                 context.duration = duration
                 context.timingFunction = CAMediaTimingFunction(name: timing)
+                hudView.animateContentsAlongsideTransition(to: mode, edge: edge)
                 window.animator().setFrame(targetFrame, display: true)
             }, completionHandler: { [weak self] in
-                self?.finishTransition(to: mode)
+                self?.finishTransition(to: mode, edge: edge)
             })
         } else {
             window.setFrame(targetFrame, display: true)
-            finishTransition(to: mode)
+            finishTransition(to: mode, edge: edge)
         }
     }
 
-    private func finishTransition(to mode: CompactHUDMode) {
+    private func finishTransition(to mode: CompactHUDMode, edge: HUDEdge) {
+        hudView.finishAnimatedTransition(to: mode, edge: edge)
+
         isTransitioning = false
 
         switch mode {

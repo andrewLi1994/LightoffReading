@@ -16,8 +16,8 @@ final class HUDSliderRow: NSView {
     private let formatter: (Double) -> String
     private let onChange: (Double) -> Void
 
-    private static let iconColumnWidth: CGFloat = 22
-    private static let iconSliderGap: CGFloat = 4
+    private static let iconColumnWidth: CGFloat = 24
+    private static let iconSliderGap: CGFloat = 6
 
     init(
         title: String,
@@ -34,9 +34,9 @@ final class HUDSliderRow: NSView {
 
         let contentLeft = Self.iconColumnWidth + Self.iconSliderGap
 
-        super.init(frame: NSRect(x: 0, y: 0, width: 268, height: 44))
+        super.init(frame: NSRect(x: 0, y: 0, width: 268, height: 48))
 
-        let iconView = NSImageView(frame: NSRect(x: 0, y: 2, width: 18, height: 18))
+        let iconView = NSImageView(frame: NSRect(x: 0, y: 8, width: 18, height: 18))
         if let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: title) {
             image.isTemplate = true
             iconView.image = image
@@ -49,19 +49,19 @@ final class HUDSliderRow: NSView {
         let titleLabel = NSTextField(labelWithString: title)
         titleLabel.font = .systemFont(ofSize: 12, weight: .medium)
         titleLabel.textColor = .labelColor
-        titleLabel.frame = NSRect(x: contentLeft, y: 25, width: 132 - contentLeft, height: 16)
+        titleLabel.frame = NSRect(x: contentLeft, y: 29, width: 132 - contentLeft, height: 16)
         addSubview(titleLabel)
 
         valueLabel.alignment = .right
         valueLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
         valueLabel.textColor = .secondaryLabelColor
-        valueLabel.frame = NSRect(x: 150, y: 25, width: 118, height: 16)
+        valueLabel.frame = NSRect(x: 150, y: 29, width: 118, height: 16)
         addSubview(valueLabel)
 
         slider.target = self
         slider.action = #selector(sliderChanged)
         slider.isContinuous = true
-        slider.frame = NSRect(x: contentLeft - 2, y: 1, width: 272 - contentLeft, height: 22)
+        slider.frame = NSRect(x: contentLeft - 2, y: 6, width: 272 - contentLeft, height: 22)
         addSubview(slider)
     }
 
@@ -110,8 +110,11 @@ final class FloatingHUDView: NSVisualEffectView {
     private var trackingArea: NSTrackingArea?
     private var dragStartLocation: NSPoint?
     private var dragStartOrigin: NSPoint?
+    private var topControlsView: NSVisualEffectView!
+    private var topControlsDivider: NSBox!
     private var powerButton: NSButton!
     private var adjustButton: NSButton!
+    private var headerLabel: NSTextField!
     private var shapeControl: NSSegmentedControl!
     private var widthRow: HUDSliderRow!
     private var heightRow: HUDSliderRow!
@@ -120,6 +123,8 @@ final class FloatingHUDView: NSVisualEffectView {
     private var horizontalOffsetRow: HUDSliderRow!
     private var verticalOffsetRow: HUDSliderRow!
     private var isLightOn: Bool
+    private let topControlY: CGFloat = 366
+    private let sectionLabelX: CGFloat = 20
 
     static var panelContentSize: NSSize {
         contentSize
@@ -272,76 +277,105 @@ final class FloatingHUDView: NSVisualEffectView {
     }
 
     private func setupControls() {
+        topControlsView = NSVisualEffectView(frame: NSRect(x: 20, y: 366, width: 92, height: 36))
+        topControlsView.material = .sidebar
+        topControlsView.blendingMode = .withinWindow
+        topControlsView.state = .active
+        topControlsView.wantsLayer = true
+        topControlsView.layer?.cornerRadius = 12
+        topControlsView.layer?.masksToBounds = true
+        topControlsView.layer?.borderWidth = 1
+        topControlsView.layer?.borderColor = NSColor.white.withAlphaComponent(0.08).cgColor
+        addSubview(topControlsView)
+
         powerButton = makeIconButton(symbol: "power", action: #selector(toggleLight))
-        powerButton.frame = NSRect(x: 12, y: 10, width: 40, height: 32)
-        addSubview(powerButton)
+        powerButton.frame = NSRect(x: 0, y: 0, width: 46, height: 36)
+        topControlsView.addSubview(powerButton)
+
+        topControlsDivider = NSBox(frame: NSRect(x: 45, y: 8, width: 1, height: 20))
+        topControlsDivider.boxType = .separator
+        topControlsView.addSubview(topControlsDivider)
 
         adjustButton = makeIconButton(symbol: "slider.horizontal.3", action: #selector(hideAdjustments))
-        adjustButton.frame = NSRect(x: 66, y: 10, width: 40, height: 32)
+        adjustButton.frame = NSRect(x: 46, y: 0, width: 46, height: 36)
         adjustButton.toolTip = "Hide Adjustments"
-        addSubview(adjustButton)
+        topControlsView.addSubview(adjustButton)
 
-        let divider = NSBox(frame: NSRect(x: 20, y: 362, width: 268, height: 1))
+        headerLabel = NSTextField(labelWithString: "Live Adjust")
+        headerLabel.font = .systemFont(ofSize: 11, weight: .semibold)
+        headerLabel.textColor = .secondaryLabelColor
+        headerLabel.frame = NSRect(x: 126, y: 378, width: 162, height: 14)
+        addSubview(headerLabel)
+
+        let divider = NSBox(frame: NSRect(x: 20, y: 352, width: 268, height: 1))
         divider.boxType = .separator
         addSubview(divider)
 
-        let headerLabel = NSTextField(labelWithString: "Live Adjust")
-        headerLabel.font = .systemFont(ofSize: 13, weight: .semibold)
-        headerLabel.frame = NSRect(x: 20, y: 374, width: 180, height: 18)
-        addSubview(headerLabel)
+        let shapeLabel = NSTextField(labelWithString: "Shape")
+        shapeLabel.font = .systemFont(ofSize: 11, weight: .semibold)
+        shapeLabel.textColor = .secondaryLabelColor
+        shapeLabel.frame = NSRect(x: sectionLabelX, y: 330, width: 120, height: 14)
+        addSubview(shapeLabel)
 
         shapeControl = NSSegmentedControl(labels: ["Ellipse", "Rect", "Full W", "Full H"], trackingMode: .selectOne, target: self, action: #selector(shapeChanged))
-        shapeControl.frame = NSRect(x: 20, y: 328, width: 268, height: 28)
+        shapeControl.frame = NSRect(x: 20, y: 292, width: 268, height: 34)
         addSubview(shapeControl)
+
+        let parametersLabel = NSTextField(labelWithString: "Parameters")
+        parametersLabel.font = .systemFont(ofSize: 11, weight: .semibold)
+        parametersLabel.textColor = .secondaryLabelColor
+        parametersLabel.frame = NSRect(x: sectionLabelX, y: 270, width: 120, height: 14)
+        addSubview(parametersLabel)
 
         widthRow = makeRow(title: "Width", symbolName: "arrow.left.and.right", value: Double(config.width), range: 0...3000, formatter: pixelFormatter) { [weak self] value in
             self?.config.width = CGFloat(value.rounded())
             self?.emitConfigChange()
         }
-        widthRow.frame.origin = NSPoint(x: 20, y: 278)
+        widthRow.frame.origin = NSPoint(x: 20, y: 220)
         addSubview(widthRow)
 
         heightRow = makeRow(title: "Height", symbolName: "arrow.up.and.down", value: Double(config.height), range: 0...3000, formatter: pixelFormatter) { [weak self] value in
             self?.config.height = CGFloat(value.rounded())
             self?.emitConfigChange()
         }
-        heightRow.frame.origin = NSPoint(x: 20, y: 234)
+        heightRow.frame.origin = NSPoint(x: 20, y: 180)
         addSubview(heightRow)
 
         featherRow = makeRow(title: "Soft Edge", symbolName: "circle.dashed", value: Double(config.feather), range: 0...240, formatter: pixelFormatter) { [weak self] value in
             self?.config.feather = CGFloat(value.rounded())
             self?.emitConfigChange()
         }
-        featherRow.frame.origin = NSPoint(x: 20, y: 190)
+        featherRow.frame.origin = NSPoint(x: 20, y: 140)
         addSubview(featherRow)
 
         opacityRow = makeRow(title: "Darkness", symbolName: "circle.lefthalf.filled", value: Double(config.opacity), range: 0.35...0.90, formatter: percentFormatter) { [weak self] value in
             self?.config.opacity = CGFloat(value)
             self?.emitConfigChange()
         }
-        opacityRow.frame.origin = NSPoint(x: 20, y: 146)
+        opacityRow.frame.origin = NSPoint(x: 20, y: 100)
         addSubview(opacityRow)
 
         horizontalOffsetRow = makeRow(title: "Left / Right", symbolName: "arrow.left.arrow.right", value: Double(config.cursorXOffset), range: -500...500, formatter: pixelFormatter) { [weak self] value in
             self?.config.cursorXOffset = CGFloat(value.rounded())
             self?.emitConfigChange()
         }
-        horizontalOffsetRow.frame.origin = NSPoint(x: 20, y: 102)
+        horizontalOffsetRow.frame.origin = NSPoint(x: 20, y: 60)
         addSubview(horizontalOffsetRow)
 
         verticalOffsetRow = makeRow(title: "Up / Down", symbolName: "arrow.up.arrow.down", value: Double(config.cursorYOffset), range: -500...500, formatter: pixelFormatter) { [weak self] value in
             self?.config.cursorYOffset = CGFloat(value.rounded())
             self?.emitConfigChange()
         }
-        verticalOffsetRow.frame.origin = NSPoint(x: 20, y: 58)
+        verticalOffsetRow.frame.origin = NSPoint(x: 20, y: 20)
         addSubview(verticalOffsetRow)
     }
 
     private func makeIconButton(symbol: String, action: Selector) -> NSButton {
         let button = NSButton(frame: .zero)
-        button.bezelStyle = .rounded
+        button.isBordered = false
         button.imagePosition = .imageOnly
-        button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 17, weight: .semibold)
+        button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
+        button.contentTintColor = .secondaryLabelColor
         button.target = self
         button.action = action
         button.setButtonType(.momentaryPushIn)
