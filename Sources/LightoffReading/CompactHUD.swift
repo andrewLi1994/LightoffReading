@@ -339,6 +339,8 @@ final class CompactHUDController {
     private static let toolbarCollapseDuration: TimeInterval = 0.14
     private static let handoffDuration: TimeInterval = 0.22
     private static let hoverGuardDuration: TimeInterval = 0.12
+    private static let pointerMonitorInterval: TimeInterval = 1.0 / 20.0
+    private static let pointerPadding: CGFloat = 4
 
     private let window: CompactHUDWindow
     private let hudView: CompactHUDView
@@ -351,6 +353,7 @@ final class CompactHUDController {
     private var ignoreHandleHoverUntil: TimeInterval = 0
     private var ignoreToolbarExitUntil: TimeInterval = 0
     private var isDragging = false
+    private var pointerMonitorTimer: Timer?
 
     init(
         isLightOn: Bool,
@@ -378,6 +381,7 @@ final class CompactHUDController {
         window.isOpaque = false
         window.isReleasedWhenClosed = false
         window.level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 2)
+        window.acceptsMouseMovedEvents = true
 
         hudView.onToggleLight = onToggleLight
         hudView.onHandleHover = { [weak self] in
@@ -411,6 +415,7 @@ final class CompactHUDController {
         isVisible = false
         isTransitioning = false
         isDragging = false
+        stopPointerMonitor()
         window.orderOut(nil)
     }
 
@@ -485,7 +490,7 @@ final class CompactHUDController {
             return
         }
 
-        let hoverFrame = window.frame.insetBy(dx: -4, dy: -4)
+        let hoverFrame = window.frame.insetBy(dx: -Self.pointerPadding, dy: -Self.pointerPadding)
         guard !hoverFrame.contains(NSEvent.mouseLocation) else {
             return
         }
@@ -566,13 +571,32 @@ final class CompactHUDController {
 
         switch mode {
         case .handle:
+            stopPointerMonitor()
             ignoreHandleHoverUntil = ProcessInfo.processInfo.systemUptime + Self.hoverGuardDuration
         case .toolbar:
+            startPointerMonitorIfNeeded()
             ignoreToolbarExitUntil = ProcessInfo.processInfo.systemUptime + Self.hoverGuardDuration
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.hoverGuardDuration) { [weak self] in
                 self?.collapseToolbarIfPointerOutside()
             }
         }
+    }
+
+    private func startPointerMonitorIfNeeded() {
+        guard pointerMonitorTimer == nil else {
+            return
+        }
+
+        let timer = Timer(timeInterval: Self.pointerMonitorInterval, repeats: true) { [weak self] _ in
+            self?.collapseToolbarIfPointerOutside()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        pointerMonitorTimer = timer
+    }
+
+    private func stopPointerMonitor() {
+        pointerMonitorTimer?.invalidate()
+        pointerMonitorTimer = nil
     }
 
     private func screen(for frame: NSRect) -> NSScreen {

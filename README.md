@@ -28,6 +28,13 @@ By default, the app bundle contains a universal binary. For a faster local nativ
 UNIVERSAL_BUILD=0 bash scripts/build-app.sh
 ```
 
+Versioning:
+
+- `APP_VERSION` env var wins when set.
+- In GitHub Actions tag builds, `v1.2.3` becomes app version `1.2.3`.
+- Otherwise the build script uses the latest local `v*` git tag.
+- If no version can be resolved, the build fails instead of inventing one.
+
 ## Run
 
 ```sh

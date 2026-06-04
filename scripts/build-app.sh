@@ -16,7 +16,17 @@ if [[ -z "$APP_VERSION" && "${GITHUB_REF_NAME:-}" == v* ]]; then
     APP_VERSION="${GITHUB_REF_NAME#v}"
 fi
 
-APP_VERSION="${APP_VERSION:-0.1.2}"
+if [[ -z "$APP_VERSION" ]] && command -v git >/dev/null 2>&1; then
+    LATEST_TAG="$(git tag --sort=-version:refname | awk '/^v[0-9]/{ print; exit }')"
+    if [[ -n "$LATEST_TAG" ]]; then
+        APP_VERSION="${LATEST_TAG#v}"
+    fi
+fi
+
+if [[ -z "$APP_VERSION" ]]; then
+    echo "Could not determine app version. Set APP_VERSION or create a v* git tag." >&2
+    exit 1
+fi
 
 cd "$ROOT"
 
