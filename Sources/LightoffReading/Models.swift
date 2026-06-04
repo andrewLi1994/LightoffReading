@@ -19,6 +19,28 @@ enum SpotlightShape: String, CaseIterable {
             return "Full Height"
         }
     }
+
+    var compactSymbolName: String {
+        switch self {
+        case .ellipse:
+            return "circle"
+        case .rectangle:
+            return "rectangle"
+        case .horizontalStrip:
+            return "rectangle.split.1x2"
+        case .verticalStrip:
+            return "rectangle.split.2x1"
+        }
+    }
+
+    var next: SpotlightShape {
+        let shapes = SpotlightShape.allCases
+        guard let index = shapes.firstIndex(of: self) else {
+            return .ellipse
+        }
+
+        return shapes[(index + 1) % shapes.count]
+    }
 }
 
 struct SpotlightConfig: Equatable {

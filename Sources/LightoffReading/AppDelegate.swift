@@ -257,8 +257,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         compactHUDController = CompactHUDController(
             isLightOn: overlayController?.isEnabled ?? false,
+            shape: config.shape,
             onToggleLight: { [weak self] in
                 self?.toggleReadingLight()
+            },
+            onCycleShape: { [weak self] in
+                guard let self else {
+                    return
+                }
+
+                self.config.shape = self.config.shape.next
+                self.applyConfigChange()
             },
             onOpenAdjustments: { [weak self] edge, centerY in
                 guard let self, !self.isHUDHiddenByUser else {
@@ -466,6 +475,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         SettingsStore.save(config)
         overlayController?.update(config: config)
         floatingHUDController?.update(config: config)
+        compactHUDController?.updateShape(config.shape)
     }
 
     @discardableResult

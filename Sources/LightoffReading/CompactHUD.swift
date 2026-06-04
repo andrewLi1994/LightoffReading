@@ -83,11 +83,12 @@ final class CompactHUDWindow: NSPanel {
 
 final class CompactHUDView: NSView {
     static let handleSize = NSSize(width: 20, height: 36)
-    static let toolbarWindowSize = NSSize(width: 68, height: 132)
+    static let toolbarWindowSize = NSSize(width: 68, height: 172)
     private static let capsuleRetreatInset: CGFloat = 4
     private static let capsuleRetreatOffset: CGFloat = 8
 
     var onToggleLight: (() -> Void)?
+    var onCycleShape: (() -> Void)?
     var onOpenAdjustments: (() -> Void)?
     var onHandleHover: (() -> Void)?
     var onToolbarExit: (() -> Void)?
@@ -100,12 +101,14 @@ final class CompactHUDView: NSView {
     private let nubView = PillBackgroundView(frame: .zero)
     private let chevronView = NSImageView(frame: .zero)
     private let powerButton = NSButton(frame: .zero)
+    private let shapeButton = NSButton(frame: .zero)
     private let adjustButton = NSButton(frame: .zero)
 
     private var trackingArea: NSTrackingArea?
     private var mode: CompactHUDMode = .handle
     private var edge: HUDEdge = .right
     private var isLightOn: Bool = false
+    private var shape: SpotlightShape = .ellipse
     private var dragStartLocation: NSPoint?
     private var dragStartOrigin: NSPoint?
 
@@ -117,11 +120,13 @@ final class CompactHUDView: NSView {
         true
     }
 
-    init(isLightOn: Bool) {
+    init(isLightOn: Bool, shape: SpotlightShape) {
         self.isLightOn = isLightOn
+        self.shape = shape
         super.init(frame: NSRect(origin: .zero, size: Self.handleSize))
         setupViews()
         updateLightState(isLightOn)
+        updateShape(shape)
         setMode(.handle, edge: .right)
     }
 
@@ -171,6 +176,17 @@ final class CompactHUDView: NSView {
 
         powerButton.contentTintColor = isLightOn ? .white : .secondaryLabelColor
         powerButton.toolTip = isLightOn ? "Turn Off Reading Light" : "Turn On Reading Light"
+    }
+
+    func updateShape(_ shape: SpotlightShape) {
+        self.shape = shape
+
+        if let image = NSImage(systemSymbolName: shape.compactSymbolName, accessibilityDescription: nil) {
+            image.isTemplate = true
+            shapeButton.image = image
+        }
+
+        shapeButton.toolTip = "Shape: \(shape.displayName). Click to switch to \(shape.next.displayName)"
     }
 
     fileprivate func setMode(_ mode: CompactHUDMode, edge: HUDEdge) {
@@ -245,6 +261,14 @@ final class CompactHUDView: NSView {
         powerButton.action = #selector(toggleLight)
         capsuleView.addSubview(powerButton)
 
+        shapeButton.isBordered = false
+        shapeButton.imagePosition = .imageOnly
+        shapeButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 18, weight: .regular)
+        shapeButton.contentTintColor = .secondaryLabelColor
+        shapeButton.target = self
+        shapeButton.action = #selector(cycleShape)
+        capsuleView.addSubview(shapeButton)
+
         adjustButton.isBordered = false
         adjustButton.imagePosition = .imageOnly
         adjustButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 21, weight: .regular)
@@ -293,7 +317,7 @@ final class CompactHUDView: NSView {
 
         capsuleView.isHidden = false
 
-        let nubSize = NSSize(width: 20, height: 48)
+        let nubSize = NSSize(width: 20, height: 56)
         let nubY = (Self.toolbarWindowSize.height - nubSize.height) / 2
 
         switch edge {
@@ -307,13 +331,19 @@ final class CompactHUDView: NSView {
 
         powerButton.frame = NSRect(
             x: (capsuleView.bounds.width - 28) / 2,
-            y: 72,
+            y: 108,
+            width: 28,
+            height: 28
+        )
+        shapeButton.frame = NSRect(
+            x: (capsuleView.bounds.width - 28) / 2,
+            y: 68,
             width: 28,
             height: 28
         )
         adjustButton.frame = NSRect(
             x: (capsuleView.bounds.width - 28) / 2,
-            y: 32,
+            y: 28,
             width: 28,
             height: 28
         )
@@ -345,9 +375,9 @@ final class CompactHUDView: NSView {
     private func toolbarCapsuleFrame(for edge: HUDEdge) -> NSRect {
         switch edge {
         case .left:
-            return NSRect(x: 12, y: 0, width: 56, height: 132)
+            return NSRect(x: 12, y: 0, width: 56, height: 172)
         case .right:
-            return NSRect(x: 0, y: 0, width: 56, height: 132)
+            return NSRect(x: 0, y: 0, width: 56, height: 172)
         }
     }
 
@@ -397,6 +427,10 @@ final class CompactHUDView: NSView {
         onToggleLight?()
     }
 
+    @objc private func cycleShape() {
+        onCycleShape?()
+    }
+
     @objc private func openAdjustments() {
         onOpenAdjustments?()
     }
@@ -426,7 +460,9 @@ final class CompactHUDController {
 
     init(
         isLightOn: Bool,
+        shape: SpotlightShape,
         onToggleLight: @escaping () -> Void,
+        onCycleShape: @escaping () -> Void,
         onOpenAdjustments: @escaping (HUDEdge, CGFloat) -> Void
     ) {
         let visibleFrame = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
@@ -440,7 +476,7 @@ final class CompactHUDController {
             backing: .buffered,
             defer: false
         )
-        self.hudView = CompactHUDView(isLightOn: isLightOn)
+        self.hudView = CompactHUDView(isLightOn: isLightOn, shape: shape)
 
         window.backgroundColor = .clear
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
@@ -453,6 +489,7 @@ final class CompactHUDController {
         window.acceptsMouseMovedEvents = true
 
         hudView.onToggleLight = onToggleLight
+        hudView.onCycleShape = onCycleShape
         hudView.onHandleHover = { [weak self] in
             self?.handleHover()
         }
@@ -478,6 +515,10 @@ final class CompactHUDController {
 
     func updateLightState(_ isLightOn: Bool) {
         hudView.updateLightState(isLightOn)
+    }
+
+    func updateShape(_ shape: SpotlightShape) {
+        hudView.updateShape(shape)
     }
 
     func hide() {
