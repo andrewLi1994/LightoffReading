@@ -14,17 +14,30 @@ enum SettingsStore {
     private static let hotKeyDisplayKey = "hotkey.displayKey"
     private static let menuBarHintShownKey = "onboarding.menuBarHintShown"
 
+    static var defaultConfig: SpotlightConfig {
+        SpotlightConfig(
+            shape: .horizontalStrip,
+            width: 880,
+            height: 200,
+            feather: 44,
+            opacity: 0.52,
+            cursorXOffset: -220,
+            cursorYOffset: 20
+        )
+    }
+
     static func load() -> SpotlightConfig {
         let defaults = UserDefaults.standard
+        let defaultConfig = defaultConfig
         defaults.register(defaults: [
-            shapeKey: SpotlightShape.horizontalStrip.rawValue,
+            shapeKey: defaultConfig.shape.rawValue,
             radiusKey: 120.0,
-            widthKey: 880.0,
-            heightKey: 41.0,
-            featherKey: 44.0,
-            opacityKey: 0.62,
-            cursorXOffsetKey: -220.0,
-            cursorYOffsetKey: 20.0
+            widthKey: Double(defaultConfig.width),
+            heightKey: Double(defaultConfig.height),
+            featherKey: Double(defaultConfig.feather),
+            opacityKey: Double(defaultConfig.opacity),
+            cursorXOffsetKey: Double(defaultConfig.cursorXOffset),
+            cursorYOffsetKey: Double(defaultConfig.cursorYOffset)
         ])
         let migratedSize = defaults.double(forKey: radiusKey) * 2
         let width = defaults.object(forKey: widthKey) == nil ? migratedSize : defaults.double(forKey: widthKey)

@@ -92,12 +92,43 @@ final class HUDSliderRow: NSView {
     }
 }
 
+private final class HoverIconButton: NSButton {
+    var onHoverChanged: ((Bool) -> Void)?
+    private var trackingArea: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.activeAlways, .inVisibleRect, .mouseEnteredAndExited],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        trackingArea = area
+        super.updateTrackingAreas()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        onHoverChanged?(true)
+        super.mouseEntered(with: event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        onHoverChanged?(false)
+        super.mouseExited(with: event)
+    }
+}
+
 final class FloatingHUDView: NSVisualEffectView {
     private static let contentSize = NSSize(width: 308, height: 416)
     private static let cornerRadius: CGFloat = 18
 
     var onToggleLight: (() -> Void)?
-    var onDismissAdjustments: (() -> Void)?
+    var onResetDefaults: (() -> Void)?
     var onConfigChange: ((SpotlightConfig) -> Void)?
     var onMouseEnteredHUD: (() -> Void)?
     var onMouseExitedHUD: (() -> Void)?
@@ -112,9 +143,11 @@ final class FloatingHUDView: NSVisualEffectView {
     private var dragStartOrigin: NSPoint?
     private var topControlsView: NSVisualEffectView!
     private var topControlsDivider: NSBox!
-    private var powerButton: NSButton!
-    private var adjustButton: NSButton!
+    private var powerButton: HoverIconButton!
+    private var resetButton: HoverIconButton!
+    private var headerStackView: NSView!
     private var headerLabel: NSTextField!
+    private var hoverHintLabel: NSTextField!
     private var shapeControl: NSSegmentedControl!
     private var widthRow: HUDSliderRow!
     private var heightRow: HUDSliderRow!
@@ -186,6 +219,7 @@ final class FloatingHUDView: NSVisualEffectView {
     }
 
     override func mouseExited(with event: NSEvent) {
+        setHoverHint(nil)
         onMouseExitedHUD?()
     }
 
@@ -290,22 +324,41 @@ final class FloatingHUDView: NSVisualEffectView {
 
         powerButton = makeIconButton(symbol: "power", action: #selector(toggleLight))
         powerButton.frame = NSRect(x: 0, y: 0, width: 46, height: 36)
+        powerButton.toolTip = "Toggle Reading Light"
+        powerButton.onHoverChanged = { [weak self] isHovered in
+            self?.setHoverHint(isHovered ? "Toggle Reading Light" : nil)
+        }
         topControlsView.addSubview(powerButton)
 
         topControlsDivider = NSBox(frame: NSRect(x: 45, y: 8, width: 1, height: 20))
         topControlsDivider.boxType = .separator
         topControlsView.addSubview(topControlsDivider)
 
-        adjustButton = makeIconButton(symbol: "slider.horizontal.3", action: #selector(hideAdjustments))
-        adjustButton.frame = NSRect(x: 46, y: 0, width: 46, height: 36)
-        adjustButton.toolTip = "Hide Adjustments"
-        topControlsView.addSubview(adjustButton)
+        resetButton = makeIconButton(symbol: "arrow.counterclockwise", action: #selector(resetDefaults))
+        resetButton.frame = NSRect(x: 46, y: 0, width: 46, height: 36)
+        resetButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+        resetButton.contentTintColor = NSColor.secondaryLabelColor.withAlphaComponent(0.68)
+        resetButton.toolTip = "Reset to Default"
+        resetButton.onHoverChanged = { [weak self] isHovered in
+            self?.setHoverHint(isHovered ? "Reset to Default" : nil)
+        }
+        topControlsView.addSubview(resetButton)
+
+        headerStackView = NSView(frame: NSRect(x: 126, y: 366, width: 162, height: 36))
+        addSubview(headerStackView)
 
         headerLabel = NSTextField(labelWithString: "Live Adjust")
         headerLabel.font = .systemFont(ofSize: 11, weight: .semibold)
         headerLabel.textColor = .secondaryLabelColor
-        headerLabel.frame = NSRect(x: 126, y: 378, width: 162, height: 14)
-        addSubview(headerLabel)
+        headerLabel.frame = NSRect(x: 0, y: 18, width: 162, height: 14)
+        headerStackView.addSubview(headerLabel)
+
+        hoverHintLabel = NSTextField(labelWithString: "")
+        hoverHintLabel.font = .systemFont(ofSize: 10, weight: .medium)
+        hoverHintLabel.textColor = .tertiaryLabelColor
+        hoverHintLabel.frame = NSRect(x: 0, y: 2, width: 162, height: 12)
+        hoverHintLabel.isHidden = true
+        headerStackView.addSubview(hoverHintLabel)
 
         let divider = NSBox(frame: NSRect(x: 20, y: 352, width: 268, height: 1))
         divider.boxType = .separator
@@ -370,8 +423,8 @@ final class FloatingHUDView: NSVisualEffectView {
         addSubview(verticalOffsetRow)
     }
 
-    private func makeIconButton(symbol: String, action: Selector) -> NSButton {
-        let button = NSButton(frame: .zero)
+    private func makeIconButton(symbol: String, action: Selector) -> HoverIconButton {
+        let button = HoverIconButton(frame: .zero)
         button.isBordered = false
         button.imagePosition = .imageOnly
         button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
@@ -386,6 +439,17 @@ final class FloatingHUDView: NSVisualEffectView {
         }
 
         return button
+    }
+
+    private func setHoverHint(_ text: String?) {
+        guard let text, !text.isEmpty else {
+            hoverHintLabel.stringValue = ""
+            hoverHintLabel.isHidden = true
+            return
+        }
+
+        hoverHintLabel.stringValue = text
+        hoverHintLabel.isHidden = false
     }
 
     private func makeRow(
@@ -418,8 +482,8 @@ final class FloatingHUDView: NSVisualEffectView {
         onActivity?()
     }
 
-    @objc private func hideAdjustments() {
-        onDismissAdjustments?()
+    @objc private func resetDefaults() {
+        onResetDefaults?()
         onActivity?()
     }
 
@@ -450,6 +514,7 @@ final class FloatingHUDController {
         config: SpotlightConfig,
         isLightOn: Bool,
         onToggleLight: @escaping () -> Void,
+        onResetDefaults: @escaping () -> Void,
         onConfigChange: @escaping (SpotlightConfig) -> Void,
         onReturnToCompact: @escaping (HUDEdge, CGFloat) -> Void
     ) {
@@ -475,10 +540,8 @@ final class FloatingHUDController {
         window.acceptsMouseMovedEvents = true
 
         hudView.onToggleLight = onToggleLight
+        hudView.onResetDefaults = onResetDefaults
         hudView.onConfigChange = onConfigChange
-        hudView.onDismissAdjustments = { [weak self] in
-            self?.returnToCompact(animated: true)
-        }
         hudView.onMouseEnteredHUD = { [weak self] in
             self?.updatePointerPresenceState()
         }

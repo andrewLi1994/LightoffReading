@@ -242,6 +242,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             onToggleLight: { [weak self] in
                 self?.toggleReadingLight()
             },
+            onResetDefaults: { [weak self] in
+                guard let self else {
+                    return
+                }
+
+                self.config = SettingsStore.defaultConfig
+                self.applyConfigChange()
+            },
             onConfigChange: { [weak self] updatedConfig in
                 self?.config = updatedConfig
                 self?.applyConfigChange()
