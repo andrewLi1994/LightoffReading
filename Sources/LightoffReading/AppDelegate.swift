@@ -240,6 +240,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let codexHookManager = CodexHookManager()
     private var activityStatus: ActivityStatus = .idle
     private var isOverlayEnabledByActivity = false
+    private var isActivityAutoOpenSuppressedByUser = false
     private var codexReceiverErrorMessage: String?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -466,8 +467,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
 
+        let shouldEnable = !overlayController.isEnabled
         isOverlayEnabledByActivity = false
-        overlayController.setEnabled(!overlayController.isEnabled)
+        isActivityAutoOpenSuppressedByUser = !shouldEnable
+        overlayController.setEnabled(shouldEnable)
         floatingHUDController?.updateLightState(overlayController.isEnabled)
         compactHUDController?.updateLightState(overlayController.isEnabled)
         refreshMenuState()
@@ -716,7 +719,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     overlayController.setEnabled(false)
                 }
             case .running, .done, .needsApproval:
-                if !overlayController.isEnabled {
+                if !overlayController.isEnabled,
+                   !isActivityAutoOpenSuppressedByUser {
                     isOverlayEnabledByActivity = true
                     overlayController.setEnabled(true)
                 }
