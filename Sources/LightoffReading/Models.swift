@@ -73,6 +73,67 @@ extension SpotlightConfig {
     }
 }
 
+struct RGBColor: Equatable {
+    var red: CGFloat
+    var green: CGFloat
+    var blue: CGFloat
+
+    static let clear = RGBColor(red: 0, green: 0, blue: 0)
+
+    var nsColor: NSColor {
+        NSColor(calibratedRed: red, green: green, blue: blue, alpha: 1)
+    }
+
+    func interpolated(to other: RGBColor, progress: CGFloat) -> RGBColor {
+        let clampedProgress = progress.clamped(to: 0...1)
+
+        func mix(_ lhs: CGFloat, _ rhs: CGFloat) -> CGFloat {
+            lhs + (rhs - lhs) * clampedProgress
+        }
+
+        return RGBColor(
+            red: mix(red, other.red),
+            green: mix(green, other.green),
+            blue: mix(blue, other.blue)
+        )
+    }
+}
+
+struct EdgeGlowStyle: Equatable {
+    var color: RGBColor
+    var intensity: CGFloat
+    var thickness: CGFloat
+    var softness: CGFloat
+    var pulseAmplitude: CGFloat
+    var pulseSpeed: CGFloat
+
+    static let off = EdgeGlowStyle(
+        color: .clear,
+        intensity: 0,
+        thickness: 0,
+        softness: 0,
+        pulseAmplitude: 0,
+        pulseSpeed: 0
+    )
+
+    func interpolated(to other: EdgeGlowStyle, progress: CGFloat) -> EdgeGlowStyle {
+        let clampedProgress = progress.clamped(to: 0...1)
+
+        func mix(_ lhs: CGFloat, _ rhs: CGFloat) -> CGFloat {
+            lhs + (rhs - lhs) * clampedProgress
+        }
+
+        return EdgeGlowStyle(
+            color: color.interpolated(to: other.color, progress: clampedProgress),
+            intensity: mix(intensity, other.intensity),
+            thickness: mix(thickness, other.thickness),
+            softness: mix(softness, other.softness),
+            pulseAmplitude: mix(pulseAmplitude, other.pulseAmplitude),
+            pulseSpeed: mix(pulseSpeed, other.pulseSpeed)
+        )
+    }
+}
+
 struct HotKeyDefinition: Equatable {
     static let defaultValue = HotKeyDefinition(
         keyCode: UInt32(kVK_ANSI_Slash),

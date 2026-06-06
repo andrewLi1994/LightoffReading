@@ -22,6 +22,28 @@ curl -fsSL https://raw.githubusercontent.com/andrewLi1994/LightoffReading/main/s
 
 このコマンドは最新リリースをダウンロードし、アプリを `/Applications` にコピーして起動します。
 
+### 実験的な Codex Alpha
+
+Codex 連携は実験的な開発者向けチャンネルです。安定版と同じ場所にインストールされます：
+
+```text
+/Applications/LightoffReading.app
+```
+
+alpha をインストールすると安定版が置き換えられます。安定版を再インストールすると alpha も置き換えられます。
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/andrewLi1994/LightoffReading/experiment/codex-status-light/scripts/install-codex-alpha.sh | bash
+```
+
+alpha は Codex hooks を自動では有効にしません。LightoffReading のメニューバー項目から `Enable Codex Integration...` を選び、Codex で `/hooks` を実行して LightoffReading hooks を一度確認して信頼してください。
+
+Codex ステータスライトは、青を作業中、黄をユーザーの注意が必要な状態、緑を完了ハイライトとして使います。黄色には、権限承認 hook と、`request_user_input` / `Awaiting response` のようにユーザーの選択や返信を待つ状態の両方が含まれます。権限承認は Codex hooks を主経路として使い、`request_user_input` は軽量なローカル session observer が現在アクティブな Codex JSONL session file だけを tail して検出します。ログ形式が変わった場合は静かに無効化されます。
+
+ローカル receiver は任意の agent id も受け付けます。例：`/state/running?agent=a`。複数 agent の場合、どれか 1 つでもユーザーの注意を必要としていれば全体は黄色になります。そうでなければ、どれか 1 つでも running なら全体は青になります。ある agent が完了した場合は緑の done ハイライトを再生し、その後は現在の集約状態に戻ります。
+
+メニューには、ローカル Codex receiver が `127.0.0.1:38561` で listening しているかも表示されます。`Send Test Status` サブメニューから、Terminal を開かずに `Running`、`Needs Attention`、`Done`、`Idle` を確認できます。
+
 ### ターミナルを使わずにインストール
 
 1. 最新リリースを開きます：

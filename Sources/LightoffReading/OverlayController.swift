@@ -10,6 +10,8 @@ final class SpotlightOverlayView: NSView {
     private var spotlightCenter: NSPoint?
     private var transitionFromShape: SpotlightShape?
     private var shapeTransitionProgress: CGFloat = 1
+    private var edgeGlowStyle: EdgeGlowStyle = .off
+    private var edgeGlowPhase: CGFloat = 0
 
     var hasSpotlight: Bool {
         spotlightCenter != nil
@@ -38,13 +40,16 @@ final class SpotlightOverlayView: NSView {
         feather: CGFloat,
         shape: SpotlightShape,
         transitionFromShape: SpotlightShape?,
-        shapeTransitionProgress: CGFloat
+        shapeTransitionProgress: CGFloat,
+        edgeGlowStyle: EdgeGlowStyle,
+        edgeGlowPhase: CGFloat
     ) {
         let clampedOpacity = opacity.clamped(to: 0...1)
         let clampedWidth = max(1, width)
         let clampedHeight = max(1, height)
         let clampedFeather = max(0, feather)
         let clampedTransitionProgress = shapeTransitionProgress.clamped(to: 0...1)
+        let clampedGlowPhase = edgeGlowPhase.clamped(to: 0...1)
         let centerChanged: Bool
 
         switch (self.spotlightCenter, spotlightCenter) {
@@ -66,6 +71,8 @@ final class SpotlightOverlayView: NSView {
             || abs(effectiveFeather - clampedFeather) > 0.5
             || centerChanged
             || shapeChanged
+            || self.edgeGlowStyle != edgeGlowStyle
+            || abs(self.edgeGlowPhase - clampedGlowPhase) > 0.001
 
         effectiveOpacity = clampedOpacity
         effectiveSpotlightWidth = clampedWidth
@@ -75,6 +82,8 @@ final class SpotlightOverlayView: NSView {
         config.shape = shape
         self.transitionFromShape = transitionFromShape
         self.shapeTransitionProgress = clampedTransitionProgress
+        self.edgeGlowStyle = edgeGlowStyle
+        self.edgeGlowPhase = clampedGlowPhase
 
         if shouldRedraw {
             needsDisplay = true
@@ -92,6 +101,7 @@ final class SpotlightOverlayView: NSView {
 
         context.setFillColor(NSColor.black.withAlphaComponent(effectiveOpacity).cgColor)
         context.fill(bounds)
+        drawEdgeGlow(in: context)
 
         guard let spotlightCenter else {
             return
@@ -125,6 +135,84 @@ final class SpotlightOverlayView: NSView {
             )
         }
 
+        context.restoreGState()
+    }
+
+    private func drawEdgeGlow(in context: CGContext) {
+        guard edgeGlowStyle.intensity > 0.001,
+              edgeGlowStyle.thickness > 0.5,
+              edgeGlowStyle.softness > 0.5 else {
+            return
+        }
+
+        let pulse = 1 + edgeGlowStyle.pulseAmplitude * sin(edgeGlowPhase * .pi * 2)
+        let alpha = (edgeGlowStyle.intensity * pulse).clamped(to: 0...1)
+        let thickness = edgeGlowStyle.thickness
+        let softness = edgeGlowStyle.softness
+        let color = edgeGlowStyle.color.nsColor
+
+        drawEdgeGradient(
+            in: context,
+            rect: NSRect(x: 0, y: bounds.height - thickness - softness, width: bounds.width, height: thickness + softness),
+            start: NSPoint(x: 0, y: bounds.height),
+            end: NSPoint(x: 0, y: bounds.height - thickness - softness),
+            color: color,
+            alpha: alpha
+        )
+        drawEdgeGradient(
+            in: context,
+            rect: NSRect(x: 0, y: 0, width: bounds.width, height: thickness + softness),
+            start: NSPoint(x: 0, y: 0),
+            end: NSPoint(x: 0, y: thickness + softness),
+            color: color,
+            alpha: alpha
+        )
+        drawEdgeGradient(
+            in: context,
+            rect: NSRect(x: 0, y: 0, width: thickness + softness, height: bounds.height),
+            start: NSPoint(x: 0, y: 0),
+            end: NSPoint(x: thickness + softness, y: 0),
+            color: color,
+            alpha: alpha
+        )
+        drawEdgeGradient(
+            in: context,
+            rect: NSRect(x: bounds.width - thickness - softness, y: 0, width: thickness + softness, height: bounds.height),
+            start: NSPoint(x: bounds.width, y: 0),
+            end: NSPoint(x: bounds.width - thickness - softness, y: 0),
+            color: color,
+            alpha: alpha
+        )
+    }
+
+    private func drawEdgeGradient(
+        in context: CGContext,
+        rect: NSRect,
+        start: NSPoint,
+        end: NSPoint,
+        color: NSColor,
+        alpha: CGFloat
+    ) {
+        guard let gradient = CGGradient(
+            colorsSpace: CGColorSpaceCreateDeviceRGB(),
+            colors: [
+                color.withAlphaComponent(alpha).cgColor,
+                color.withAlphaComponent(alpha * 0.45).cgColor,
+                color.withAlphaComponent(0).cgColor
+            ] as CFArray,
+            locations: [0, 0.35, 1]
+        ) else {
+            return
+        }
+
+        context.saveGState()
+        context.clip(to: rect)
+        context.drawLinearGradient(
+            gradient,
+            start: start,
+            end: end,
+            options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
+        )
         context.restoreGState()
     }
 
@@ -335,7 +423,9 @@ final class SpotlightOverlayWindow: NSWindow {
         feather: CGFloat,
         shape: SpotlightShape,
         transitionFromShape: SpotlightShape?,
-        shapeTransitionProgress: CGFloat
+        shapeTransitionProgress: CGFloat,
+        edgeGlowStyle: EdgeGlowStyle,
+        edgeGlowPhase: CGFloat
     ) {
         let localPoint: NSPoint?
 
@@ -354,7 +444,9 @@ final class SpotlightOverlayWindow: NSWindow {
             feather: feather,
             shape: shape,
             transitionFromShape: transitionFromShape,
-            shapeTransitionProgress: shapeTransitionProgress
+            shapeTransitionProgress: shapeTransitionProgress,
+            edgeGlowStyle: edgeGlowStyle,
+            edgeGlowPhase: edgeGlowPhase
         )
     }
 }
@@ -387,9 +479,20 @@ final class OverlayController {
         let progress: CGFloat
     }
 
+    private struct ActivityRenderState {
+        let spotlightOpacityMultiplier: CGFloat
+        let spotlightSizeDelta: CGFloat
+        let spotlightFeatherDelta: CGFloat
+        let edgeGlowStyle: EdgeGlowStyle
+        let edgeGlowPhase: CGFloat
+    }
+
     private static let enableDuration: TimeInterval = 0.65
     private static let disableDuration: TimeInterval = 0.75
     private static let shapeTransitionDuration: TimeInterval = 0.5
+    private static let activityEnterTransitionDuration: TimeInterval = 0.38
+    private static let doneHighlightDuration: TimeInterval = 0.28
+    private static let doneExitTransitionDuration: TimeInterval = 0.75
 
     private var config: SpotlightConfig
     private var windowsByDisplayID: [CGDirectDisplayID: SpotlightOverlayWindow] = [:]
@@ -400,6 +503,15 @@ final class OverlayController {
     private var animation: OverlayAnimation?
     private var configAnimation: ConfigAnimation?
     private var activityStatus: ActivityStatus = .idle
+    private var displayedEdgeGlowStyle: EdgeGlowStyle = .off
+    private var targetEdgeGlowStyle: EdgeGlowStyle = .off
+    private var activityTransitionStartTime: TimeInterval?
+    private var activityTransitionDuration: TimeInterval = 0.38
+    private var activityTransitionFromStyle: EdgeGlowStyle = .off
+    private var doneHighlightEndTime: TimeInterval?
+    private var postDoneStatus: ActivityStatus = .idle
+
+    var onActivityStatusSettled: ((ActivityStatus) -> Void)?
 
     var isEnabled: Bool {
         state == .animatingOn || state == .on
@@ -456,11 +568,54 @@ final class OverlayController {
     }
 
     func update(activityStatus: ActivityStatus) {
-        guard self.activityStatus != activityStatus else {
+        guard self.activityStatus != activityStatus || activityStatus == .done else {
             return
         }
 
-        self.activityStatus = activityStatus
+        let now = ProcessInfo.processInfo.systemUptime
+        displayedEdgeGlowStyle = currentDisplayedEdgeGlowStyle(now: now)
+
+        if self.activityStatus == .done,
+           activityStatus != .done,
+           doneHighlightEndTime != nil {
+            if activityStatus == .needsApproval {
+                self.activityStatus = activityStatus
+                postDoneStatus = activityStatus
+                doneHighlightEndTime = nil
+                beginActivityTransition(to: edgeGlowStyle(for: activityStatus), from: displayedEdgeGlowStyle, now: now, duration: Self.activityEnterTransitionDuration)
+
+                if state != .off {
+                    startTimerIfNeeded()
+                    tick(force: true)
+                }
+                return
+            }
+
+            postDoneStatus = activityStatus
+
+            if state != .off {
+                startTimerIfNeeded()
+                tick(force: true)
+            }
+            return
+        }
+
+        if activityStatus == .done {
+            self.activityStatus = .done
+            postDoneStatus = .idle
+            doneHighlightEndTime = now + Self.doneHighlightDuration
+            beginActivityTransition(to: doneGlowStyle, from: displayedEdgeGlowStyle, now: now, duration: Self.activityEnterTransitionDuration)
+        } else {
+            postDoneStatus = activityStatus
+            doneHighlightEndTime = nil
+            self.activityStatus = activityStatus
+            beginActivityTransition(
+                to: activityStatus == .idle ? fadeOutStyle(from: displayedEdgeGlowStyle) : edgeGlowStyle(for: activityStatus),
+                from: displayedEdgeGlowStyle,
+                now: now,
+                duration: activityStatus == .idle ? Self.doneExitTransitionDuration : Self.activityEnterTransitionDuration
+            )
+        }
 
         if state != .off {
             startTimerIfNeeded()
@@ -545,13 +700,14 @@ final class OverlayController {
         let now = ProcessInfo.processInfo.systemUptime
         let animationChanged = advanceAnimation(now: now)
         let configAnimationChanged = advanceConfigAnimation(now: now)
+        let activityAnimationChanged = advanceActivityAnimation(now: now)
 
         if state == .off {
             return
         }
 
         updateRenderState(
-            force: force || animationChanged || configAnimationChanged || activityStatus != .idle,
+            force: force || animationChanged || configAnimationChanged || activityAnimationChanged || shouldContinueActivityAnimation(now: now),
             now: now
         )
     }
@@ -598,6 +754,23 @@ final class OverlayController {
         return true
     }
 
+    private func advanceActivityAnimation(now: TimeInterval) -> Bool {
+        if let doneHighlightEndTime, now >= doneHighlightEndTime {
+            self.doneHighlightEndTime = nil
+            displayedEdgeGlowStyle = currentDisplayedEdgeGlowStyle(now: now)
+            activityStatus = postDoneStatus
+            beginActivityTransition(
+                to: postDoneStatus == .idle ? fadeOutStyle(from: displayedEdgeGlowStyle) : edgeGlowStyle(for: postDoneStatus),
+                from: displayedEdgeGlowStyle,
+                now: now,
+                duration: postDoneStatus == .idle ? Self.doneExitTransitionDuration : Self.activityEnterTransitionDuration
+            )
+            return true
+        }
+
+        return false
+    }
+
     private func finishOff() {
         stopTimer()
         lastMouseLocation = nil
@@ -610,7 +783,9 @@ final class OverlayController {
                 feather: config.feather,
                 shape: config.shape,
                 transitionFromShape: nil,
-                shapeTransitionProgress: 1
+                shapeTransitionProgress: 1,
+                edgeGlowStyle: .off,
+                edgeGlowPhase: 0
             )
             $0.orderOut(nil)
         }
@@ -632,8 +807,8 @@ final class OverlayController {
         let activeDisplayID = activeScreen.displayID
         let shapeState = currentShapeTransitionState(now: now)
         let spotlightPoint = clampedSpotlightPoint(for: mouseLocation, on: activeScreen, shapeState: shapeState)
-        let activityEffect = currentActivityEffect(now: now)
-        let opacity = (shapeState.config.opacity * activityEffect.opacityMultiplier).clamped(to: 0...0.95) * visualProgress
+        let activityEffect = currentActivityRenderState(now: now)
+        let opacity = (shapeState.config.opacity * activityEffect.spotlightOpacityMultiplier).clamped(to: 0...0.95) * visualProgress
 
         for (displayID, window) in windowsByDisplayID {
             if displayID == activeDisplayID {
@@ -642,9 +817,9 @@ final class OverlayController {
                 let baseWidth = coverSize.width + (shapeState.config.width - coverSize.width) * visualProgress
                 let baseHeight = coverSize.height + (shapeState.config.height - coverSize.height) * visualProgress
                 let baseFeather = expandedFeather + (shapeState.config.feather - expandedFeather) * visualProgress
-                let width = baseWidth + activityEffect.sizeDelta
-                let height = baseHeight + activityEffect.sizeDelta * 0.45
-                let feather = baseFeather + activityEffect.featherDelta
+                let width = baseWidth + activityEffect.spotlightSizeDelta
+                let height = baseHeight + activityEffect.spotlightSizeDelta * 0.45
+                let feather = baseFeather + activityEffect.spotlightFeatherDelta
 
                 window.applyRenderState(
                     opacity: opacity,
@@ -654,7 +829,9 @@ final class OverlayController {
                     feather: feather,
                     shape: shapeState.config.shape,
                     transitionFromShape: shapeState.fromShape,
-                    shapeTransitionProgress: shapeState.progress
+                    shapeTransitionProgress: shapeState.progress,
+                    edgeGlowStyle: activityEffect.edgeGlowStyle,
+                    edgeGlowPhase: activityEffect.edgeGlowPhase
                 )
             } else {
                 window.applyRenderState(
@@ -665,7 +842,9 @@ final class OverlayController {
                     feather: shapeState.config.feather,
                     shape: shapeState.config.shape,
                     transitionFromShape: shapeState.fromShape,
-                    shapeTransitionProgress: shapeState.progress
+                    shapeTransitionProgress: shapeState.progress,
+                    edgeGlowStyle: activityEffect.edgeGlowStyle,
+                    edgeGlowPhase: activityEffect.edgeGlowPhase
                 )
             }
         }
@@ -680,25 +859,136 @@ final class OverlayController {
         return 1 - (shifted * shifted * shifted) / 2
     }
 
-    private func currentActivityEffect(now: TimeInterval) -> (opacityMultiplier: CGFloat, sizeDelta: CGFloat, featherDelta: CGFloat) {
+    private func currentActivityRenderState(now: TimeInterval) -> ActivityRenderState {
+        let edgeGlowStyle = currentDisplayedEdgeGlowStyle(now: now)
+        displayedEdgeGlowStyle = edgeGlowStyle
+        let pulse = (sin(now * edgeGlowStyle.pulseSpeed) + 1) / 2
+
         switch activityStatus {
         case .idle:
-            return (1, 0, 0)
+            return ActivityRenderState(
+                spotlightOpacityMultiplier: 1,
+                spotlightSizeDelta: 0,
+                spotlightFeatherDelta: 0,
+                edgeGlowStyle: edgeGlowStyle,
+                edgeGlowPhase: CGFloat(pulse)
+            )
         case .running:
-            let wave = (sin(now * 2.4) + 1) / 2
-            return (
-                opacityMultiplier: 0.92 + CGFloat(wave) * 0.14,
-                sizeDelta: CGFloat(wave) * 28,
-                featherDelta: CGFloat(wave) * 18
+            return ActivityRenderState(
+                spotlightOpacityMultiplier: 1,
+                spotlightSizeDelta: 0,
+                spotlightFeatherDelta: 0,
+                edgeGlowStyle: edgeGlowStyle,
+                edgeGlowPhase: CGFloat(pulse)
+            )
+        case .done:
+            return ActivityRenderState(
+                spotlightOpacityMultiplier: 1,
+                spotlightSizeDelta: 0,
+                spotlightFeatherDelta: 0,
+                edgeGlowStyle: edgeGlowStyle,
+                edgeGlowPhase: CGFloat(pulse)
             )
         case .needsApproval:
-            let wave = (sin(now * 5.2) + 1) / 2
-            return (
-                opacityMultiplier: 1.02 + CGFloat(wave) * 0.18,
-                sizeDelta: CGFloat(wave) * 44,
-                featherDelta: CGFloat(wave) * 26
+            return ActivityRenderState(
+                spotlightOpacityMultiplier: 1,
+                spotlightSizeDelta: 0,
+                spotlightFeatherDelta: 0,
+                edgeGlowStyle: edgeGlowStyle,
+                edgeGlowPhase: CGFloat(pulse)
             )
         }
+    }
+
+    private func currentDisplayedEdgeGlowStyle(now: TimeInterval) -> EdgeGlowStyle {
+        guard let activityTransitionStartTime else {
+            return targetEdgeGlowStyle
+        }
+
+        let rawProgress = ((now - activityTransitionStartTime) / activityTransitionDuration).clamped(to: 0...1)
+        let easedProgress = easeInOutCubic(CGFloat(rawProgress))
+        let style = activityTransitionFromStyle.interpolated(to: targetEdgeGlowStyle, progress: easedProgress)
+
+        if rawProgress >= 1 {
+            self.activityTransitionStartTime = nil
+            if targetEdgeGlowStyle.intensity <= 0.001 {
+                self.targetEdgeGlowStyle = .off
+                self.activityTransitionFromStyle = .off
+                onActivityStatusSettled?(.idle)
+                return .off
+            }
+
+            self.activityTransitionFromStyle = targetEdgeGlowStyle
+            if activityStatus != .done {
+                onActivityStatusSettled?(activityStatus)
+            }
+        }
+
+        return style
+    }
+
+    private func beginActivityTransition(to targetStyle: EdgeGlowStyle, from sourceStyle: EdgeGlowStyle, now: TimeInterval, duration: TimeInterval) {
+        activityTransitionFromStyle = sourceStyle
+        targetEdgeGlowStyle = targetStyle
+        activityTransitionStartTime = now
+        activityTransitionDuration = duration
+    }
+
+    private func fadeOutStyle(from style: EdgeGlowStyle) -> EdgeGlowStyle {
+        EdgeGlowStyle(
+            color: style.color,
+            intensity: 0,
+            thickness: style.thickness,
+            softness: style.softness,
+            pulseAmplitude: 0,
+            pulseSpeed: style.pulseSpeed
+        )
+    }
+
+    private func shouldContinueActivityAnimation(now: TimeInterval) -> Bool {
+        if activityStatus != .idle {
+            return true
+        }
+
+        return currentDisplayedEdgeGlowStyle(now: now) != .off
+    }
+
+    private func edgeGlowStyle(for status: ActivityStatus) -> EdgeGlowStyle {
+        switch status {
+        case .idle:
+            return .off
+        case .running:
+            return EdgeGlowStyle(
+                color: RGBColor(red: 0.16, green: 0.82, blue: 1.0),
+                intensity: 0.36,
+                thickness: 14,
+                softness: 44,
+                pulseAmplitude: 0.12,
+                pulseSpeed: 2.1
+            )
+        case .done:
+            return doneGlowStyle
+        case .needsApproval:
+            return EdgeGlowStyle(
+                color: RGBColor(red: 1.0, green: 0.78, blue: 0.22),
+                intensity: 0.56,
+                thickness: 18,
+                softness: 56,
+                pulseAmplitude: 0.18,
+                pulseSpeed: 3.4
+            )
+        }
+    }
+
+    private var doneGlowStyle: EdgeGlowStyle {
+        EdgeGlowStyle(
+            color: RGBColor(red: 0.32, green: 1.0, blue: 0.58),
+            intensity: 0.62,
+            thickness: 22,
+            softness: 76,
+            pulseAmplitude: 0,
+            pulseSpeed: 1
+        )
     }
 
     private func screen(containing point: NSPoint) -> NSScreen? {

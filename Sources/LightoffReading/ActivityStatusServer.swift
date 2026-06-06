@@ -23,6 +23,8 @@ final class ActivityStatusServer {
     static let port: UInt16 = 38561
 
     var onStatus: ((ActivityStatus) -> Void)?
+    var onEvent: ((ActivityStatusEvent) -> Void)?
+    var onObserverDebug: (() -> [String: Any])?
 
     private var socketFD: Int32 = -1
     private var source: DispatchSourceRead?
@@ -102,11 +104,23 @@ final class ActivityStatusServer {
 
     private func handle(clientFD: Int32) {
         let request = readRequest(from: clientFD)
-        let status = request.flatMap(parseStatus)
+        if request.map(isObserverDebugRequest) == true {
+            if let onObserverDebug {
+                writeResponse(to: clientFD, code: 200, body: Self.jsonBody(for: onObserverDebug()))
+                close(clientFD)
+            } else {
+                writeResponse(to: clientFD, code: 404, body: "{\"error\":\"observer debug unavailable\"}\n")
+                close(clientFD)
+            }
+            return
+        }
 
-        if let status {
-            onStatus?(status)
-            writeResponse(to: clientFD, code: 200, body: "{\"status\":\"\(status.rawValue)\"}\n")
+        let event = request.flatMap(parseEvent)
+
+        if let event {
+            onEvent?(event)
+            onStatus?(event.status)
+            writeResponse(to: clientFD, code: 200, body: responseBody(for: event))
         } else {
             writeResponse(to: clientFD, code: 404, body: "{\"error\":\"unknown status\"}\n")
         }
@@ -138,7 +152,7 @@ final class ActivityStatusServer {
         return String(bytes: bytes, encoding: .utf8)
     }
 
-    private func parseStatus(from request: String) -> ActivityStatus? {
+    private func parseEvent(from request: String) -> ActivityStatusEvent? {
         guard let requestLine = request.split(whereSeparator: \.isNewline).first else {
             return nil
         }
@@ -154,17 +168,83 @@ final class ActivityStatusServer {
             return nil
         }
 
-        let component = String(path.dropFirst(prefix.count))
-            .split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
-            .first
-            .map(String.init) ?? ""
+        let stateAndQuery = String(path.dropFirst(prefix.count))
+        let splitPath = stateAndQuery.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
+        let component = splitPath.first.map(String.init) ?? ""
         let normalizedComponent = component
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             .removingPercentEncoding?
             .lowercased() ?? component.lowercased()
 
-        return ActivityStatus(pathComponent: normalizedComponent)
+        guard let status = ActivityStatus(pathComponent: normalizedComponent) else {
+            return nil
+        }
+
+        let query = splitPath.count > 1 ? String(splitPath[1]) : ""
+        let agentID = Self.agentID(from: query)
+
+        return ActivityStatusEvent(status: status, agentID: agentID)
+    }
+
+    private func isObserverDebugRequest(_ request: String) -> Bool {
+        guard let requestLine = request.split(whereSeparator: \.isNewline).first else {
+            return false
+        }
+
+        let parts = requestLine.split(whereSeparator: \.isWhitespace)
+        guard parts.count >= 2 else {
+            return false
+        }
+
+        let path = String(parts[1])
+        return path == "/debug/observer" || path.hasPrefix("/debug/observer?")
+    }
+
+    private static func agentID(from query: String) -> String {
+        guard !query.isEmpty else {
+            return ActivityStatusEvent.defaultAgentID
+        }
+
+        for pair in query.split(separator: "&") {
+            let parts = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.first == "agent" else {
+                continue
+            }
+
+            let rawValue = parts.count > 1 ? String(parts[1]) : ""
+            let decodedValue = rawValue
+                .replacingOccurrences(of: "+", with: " ")
+                .removingPercentEncoding ?? rawValue
+            let normalizedValue = decodedValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            return normalizedValue.isEmpty ? ActivityStatusEvent.defaultAgentID : normalizedValue
+        }
+
+        return ActivityStatusEvent.defaultAgentID
+    }
+
+    private func responseBody(for event: ActivityStatusEvent) -> String {
+        let object = [
+            "status": event.status.rawValue,
+            "agent": event.agentID
+        ]
+
+        guard let data = try? JSONSerialization.data(withJSONObject: object, options: []),
+              let body = String(data: data, encoding: .utf8) else {
+            return "{\"status\":\"\(event.status.rawValue)\"}\n"
+        }
+
+        return "\(body)\n"
+    }
+
+    private static func jsonBody(for object: [String: Any]) -> String {
+        guard JSONSerialization.isValidJSONObject(object),
+              let data = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]),
+              let body = String(data: data, encoding: .utf8) else {
+            return "{\"error\":\"invalid debug object\"}\n"
+        }
+
+        return "\(body)\n"
     }
 
     private func writeResponse(to clientFD: Int32, code: Int, body: String) {

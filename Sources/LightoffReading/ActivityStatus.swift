@@ -3,14 +3,17 @@ import Foundation
 enum ActivityStatus: String {
     case idle
     case running
+    case done
     case needsApproval = "need_approval"
 
     init?(pathComponent: String) {
         let aliases: [String: ActivityStatus] = [
-            "done": .idle,
+            "done": .done,
             "idle": .idle,
             "running": .running,
             "thinking": .running,
+            "need_attention": .needsApproval,
+            "needs_attention": .needsApproval,
             "need_approval": .needsApproval,
             "needs_approval": .needsApproval
         ]
@@ -28,8 +31,10 @@ enum ActivityStatus: String {
             return "Idle"
         case .running:
             return "Running"
+        case .done:
+            return "Done"
         case .needsApproval:
-            return "Needs Approval"
+            return "Needs Attention"
         }
     }
 }

@@ -209,7 +209,7 @@ final class CodexHookManager {
             ("UserPromptSubmit", .running, command(for: .running)),
             ("PreToolUse", .running, command(for: .running)),
             ("PermissionRequest", .needsApproval, command(for: .needsApproval)),
-            ("Stop", .idle, command(for: .idle))
+            ("Stop", .done, command(for: .done))
         ]
     }
 
@@ -217,11 +217,13 @@ final class CodexHookManager {
         let path: String
         switch status {
         case .idle:
-            path = "done"
+            path = "idle"
         case .running:
             path = "running"
+        case .done:
+            path = "done"
         case .needsApproval:
-            path = "need_approval"
+            path = "need_attention"
         }
 
         return "/usr/bin/curl -fsS --max-time 2 http://127.0.0.1:\(ActivityStatusServer.port)/state/\(path) >/dev/null 2>&1 || true"

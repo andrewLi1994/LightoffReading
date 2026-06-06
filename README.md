@@ -38,7 +38,11 @@ curl -fsSL https://raw.githubusercontent.com/andrewLi1994/LightoffReading/experi
 
 The alpha does not enable Codex hooks automatically. Open the LightoffReading menu bar item, choose `Enable Codex Integration...`, then open Codex and run `/hooks` to review and trust the LightoffReading hooks once.
 
-The alpha menu also shows whether the local Codex receiver is listening on `127.0.0.1:38561`, and includes a `Send Test Status` submenu so you can verify `Running`, `Needs Approval`, and `Idle` without opening Terminal.
+The alpha menu also shows whether the local Codex receiver is listening on `127.0.0.1:38561`, and includes a `Send Test Status` submenu so you can verify `Running`, `Needs Attention`, `Done`, and `Idle` without opening Terminal.
+
+The Codex status light uses blue for active work, yellow for attention, and green for a completion highlight. Yellow means Codex needs the user's attention, including both permission approval hooks and `request_user_input` / `Awaiting response` prompts. Permission approval uses Codex hooks as the primary path; `request_user_input` is detected by a lightweight local session observer that tails only the active Codex JSONL session file and degrades silently if the log format changes.
+
+The receiver also accepts optional agent IDs, for example `/state/running?agent=a`. If multiple agents are active, any agent needing attention makes the overall light yellow; otherwise any running agent keeps the light blue; a completed agent can still play the green done highlight before the light returns to the current aggregate state.
 
 To remove Codex hooks after reverting to stable:
 

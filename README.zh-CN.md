@@ -22,6 +22,28 @@ curl -fsSL https://raw.githubusercontent.com/andrewLi1994/LightoffReading/main/s
 
 这个命令会下载最新版本，把 app 复制到 `/Applications`，然后自动打开。
 
+### 实验性 Codex Alpha
+
+Codex 集成是实验性的开发者通道，会安装到和稳定版相同的位置：
+
+```text
+/Applications/LightoffReading.app
+```
+
+安装 alpha 会替换稳定版；重新安装稳定版也会替换 alpha。
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/andrewLi1994/LightoffReading/experiment/codex-status-light/scripts/install-codex-alpha.sh | bash
+```
+
+alpha 不会自动启用 Codex hooks。打开 LightoffReading 菜单栏项目，选择 `Enable Codex Integration...`，然后在 Codex 中运行 `/hooks`，检查并信任 LightoffReading hooks 一次。
+
+Codex 状态灯使用蓝色表示正在工作，黄色表示需要用户注意，绿色表示完成高光。黄色包括权限审批 hook，也包括 `request_user_input` / `Awaiting response` 这类等待用户选择或回复的状态。权限审批以 Codex hooks 为主路径；`request_user_input` 由轻量的本地 session observer 检测，它只 tail 当前活跃的 Codex JSONL session 文件，如果日志格式变化会静默降级。
+
+本地 receiver 也支持可选 agent id，例如 `/state/running?agent=a`。多 agent 场景下，任一 agent 需要用户注意时整体显示黄光；否则任一 agent 还在运行时整体显示蓝光；某个 agent 完成时可以播放绿色 done 高光，然后回到当前聚合状态。
+
+菜单里也会显示本地 Codex receiver 是否正在监听 `127.0.0.1:38561`，并提供 `Send Test Status` 子菜单，可以不用打开终端就测试 `Running`、`Needs Attention`、`Done` 和 `Idle`。
+
 ### 不使用终端安装
 
 1. 打开最新发布页面：

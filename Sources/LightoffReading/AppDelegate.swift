@@ -235,6 +235,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var codexTestMenuItem: NSMenuItem?
     private var isHUDHiddenByUser = false
     private let activityStatusServer = ActivityStatusServer()
+    private let activityCoordinator = ActivityCoordinator()
+    private let codexSessionObserver = CodexSessionObserver()
     private let codexHookManager = CodexHookManager()
     private var activityStatus: ActivityStatus = .idle
     private var isOverlayEnabledByActivity = false
@@ -245,8 +247,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         ProcessInfo.processInfo.disableAutomaticTermination("LightoffReading is a persistent menu bar utility.")
 
         overlayController = OverlayController(config: config)
-        activityStatusServer.onStatus = { [weak self] status in
+        overlayController?.onActivityStatusSettled = { [weak self] status in
+            self?.handleSettledActivityStatus(status)
+        }
+        activityCoordinator.onStatus = { [weak self] status in
             self?.applyActivityStatus(status)
+        }
+        activityStatusServer.onEvent = { [weak self] event in
+            self?.activityCoordinator.apply(event)
+        }
+        activityStatusServer.onObserverDebug = { [weak self] in
+            guard let self else {
+                return ["error": "app delegate unavailable"]
+            }
+
+            var object = codexSessionObserver.snapshot().dictionary
+            object["receiverRunning"] = self.activityStatusServer.isRunning
+            return object
+        }
+        codexSessionObserver.onPendingRequestUserInputChange = { [weak self] agentID, callIDs in
+            self?.activityCoordinator.setRequestUserInputCallIDs(callIDs, for: agentID)
+        }
+        codexSessionObserver.onStatusChange = { [weak self] _ in
+            self?.refreshMenuState()
         }
         setupStatusItem()
 
@@ -395,7 +418,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let codexTestMenuItem = NSMenuItem(title: "Send Test Status", action: nil, keyEquivalent: "")
         let codexTestMenu = NSMenu(title: "Send Test Status")
         codexTestMenu.addItem(makeCodexTestItem(title: "Running", status: .running))
-        codexTestMenu.addItem(makeCodexTestItem(title: "Needs Approval", status: .needsApproval))
+        codexTestMenu.addItem(makeCodexTestItem(title: "Needs Attention", status: .needsApproval))
+        codexTestMenu.addItem(makeCodexTestItem(title: "Done", status: .done))
         codexTestMenu.addItem(makeCodexTestItem(title: "Idle", status: .idle))
         menu.setSubmenu(codexTestMenu, for: codexTestMenuItem)
         self.codexTestMenuItem = codexTestMenuItem
@@ -553,7 +577,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
 
-        applyActivityStatus(status)
+        activityCoordinator.apply(ActivityStatusEvent(status: status))
     }
 
     @objc private func openSupportPage() {
@@ -643,7 +667,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         SettingsStore.setCodexIntegrationEnabled(false)
         stopActivityStatusServerIfUnused()
-        applyActivityStatus(.idle)
+        activityCoordinator.reset()
         refreshMenuState()
     }
 
@@ -651,6 +675,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func startActivityStatusServer(showErrors: Bool) -> Bool {
         do {
             try activityStatusServer.start()
+            codexSessionObserver.start()
             codexReceiverErrorMessage = nil
             refreshMenuState()
             return true
@@ -670,6 +695,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
 
         activityStatusServer.stop()
+        codexSessionObserver.stop()
         codexReceiverErrorMessage = nil
     }
 
@@ -689,11 +715,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     isOverlayEnabledByActivity = false
                     overlayController.setEnabled(false)
                 }
-            case .running, .needsApproval:
+            case .running, .done, .needsApproval:
                 if !overlayController.isEnabled {
                     isOverlayEnabledByActivity = true
                     overlayController.setEnabled(true)
                 }
+            }
+
+            floatingHUDController?.updateLightState(overlayController.isEnabled)
+            compactHUDController?.updateLightState(overlayController.isEnabled)
+            refreshMenuState()
+        }
+    }
+
+    private func handleSettledActivityStatus(_ status: ActivityStatus) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  let overlayController else {
+                return
+            }
+
+            activityStatus = status
+
+            if status == .idle, isOverlayEnabledByActivity {
+                isOverlayEnabledByActivity = false
+                overlayController.setEnabled(false)
             }
 
             floatingHUDController?.updateLightState(overlayController.isEnabled)
@@ -751,7 +797,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
 
         if activityStatusServer.isRunning {
-            return "Receiver: Listening on \(ActivityStatusServer.host):\(ActivityStatusServer.port)"
+            return "Receiver: Listening on \(ActivityStatusServer.host):\(ActivityStatusServer.port) - \(codexSessionObserver.currentStatusDescription)"
         }
 
         return "Receiver: Offline"
