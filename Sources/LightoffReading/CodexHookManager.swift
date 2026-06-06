@@ -36,6 +36,10 @@ final class CodexHookManager {
         hooksURL.path
     }
 
+    var configURL: URL {
+        hooksURL
+    }
+
     func isInstalled() -> Bool {
         guard let root = try? loadRoot(),
               let hooks = root["hooks"] as? [String: Any] else {

@@ -38,6 +38,8 @@ curl -fsSL https://raw.githubusercontent.com/andrewLi1994/LightoffReading/experi
 
 The alpha does not enable Codex hooks automatically. Open the LightoffReading menu bar item, choose `Enable Codex Integration...`, then open Codex and run `/hooks` to review and trust the LightoffReading hooks once.
 
+The alpha menu also shows whether the local Codex receiver is listening on `127.0.0.1:38561`, and includes a `Send Test Status` submenu so you can verify `Running`, `Needs Approval`, and `Idle` without opening Terminal.
+
 To remove Codex hooks after reverting to stable:
 
 ```sh

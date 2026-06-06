@@ -229,12 +229,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var shortcutItem: NSMenuItem?
     private var codexIntegrationItem: NSMenuItem?
     private var codexStatusItem: NSMenuItem?
+    private var codexReceiverItem: NSMenuItem?
     private var codexConfigPathItem: NSMenuItem?
+    private var codexOpenConfigItem: NSMenuItem?
+    private var codexTestMenuItem: NSMenuItem?
     private var isHUDHiddenByUser = false
     private let activityStatusServer = ActivityStatusServer()
     private let codexHookManager = CodexHookManager()
     private var activityStatus: ActivityStatus = .idle
     private var isOverlayEnabledByActivity = false
+    private var codexReceiverErrorMessage: String?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -373,10 +377,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         self.codexStatusItem = codexStatusItem
         menu.addItem(codexStatusItem)
 
+        let codexReceiverItem = NSMenuItem(title: "Receiver: Offline", action: nil, keyEquivalent: "")
+        codexReceiverItem.isEnabled = false
+        self.codexReceiverItem = codexReceiverItem
+        menu.addItem(codexReceiverItem)
+
         let codexConfigPathItem = NSMenuItem(title: "Hooks: \(codexHookManager.configPath)", action: nil, keyEquivalent: "")
         codexConfigPathItem.isEnabled = false
         self.codexConfigPathItem = codexConfigPathItem
         menu.addItem(codexConfigPathItem)
+
+        let codexOpenConfigItem = NSMenuItem(title: "Reveal Hooks File", action: #selector(revealCodexHooksFile), keyEquivalent: "")
+        codexOpenConfigItem.target = self
+        self.codexOpenConfigItem = codexOpenConfigItem
+        menu.addItem(codexOpenConfigItem)
+
+        let codexTestMenuItem = NSMenuItem(title: "Send Test Status", action: nil, keyEquivalent: "")
+        let codexTestMenu = NSMenu(title: "Send Test Status")
+        codexTestMenu.addItem(makeCodexTestItem(title: "Running", status: .running))
+        codexTestMenu.addItem(makeCodexTestItem(title: "Needs Approval", status: .needsApproval))
+        codexTestMenu.addItem(makeCodexTestItem(title: "Idle", status: .idle))
+        menu.setSubmenu(codexTestMenu, for: codexTestMenuItem)
+        self.codexTestMenuItem = codexTestMenuItem
+        menu.addItem(codexTestMenuItem)
 
         menu.addItem(.separator())
 
@@ -514,6 +537,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+    @objc private func revealCodexHooksFile() {
+        let hooksURL = codexHookManager.configURL
+        let fileManager = FileManager.default
+
+        if fileManager.fileExists(atPath: hooksURL.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([hooksURL])
+        } else {
+            NSWorkspace.shared.open(hooksURL.deletingLastPathComponent())
+        }
+    }
+
+    @objc private func sendCodexTestStatus(_ sender: NSMenuItem) {
+        guard let status = sender.representedObject as? ActivityStatus else {
+            return
+        }
+
+        applyActivityStatus(status)
+    }
+
     @objc private func openSupportPage() {
         guard let url = URL(string: "https://github.com/sponsors/andrewLi1994") else {
             return
@@ -609,8 +651,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func startActivityStatusServer(showErrors: Bool) -> Bool {
         do {
             try activityStatusServer.start()
+            codexReceiverErrorMessage = nil
+            refreshMenuState()
             return true
         } catch {
+            codexReceiverErrorMessage = error.localizedDescription
+            refreshMenuState()
             if showErrors {
                 showCodexIntegrationError(error)
             }
@@ -624,6 +670,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
 
         activityStatusServer.stop()
+        codexReceiverErrorMessage = nil
     }
 
     private func applyActivityStatus(_ status: ActivityStatus) {
@@ -690,8 +737,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         hudVisibilityItem?.title = isHUDHiddenByUser ? "Show Floating HUD" : "Hide Floating HUD"
         codexIntegrationItem?.title = SettingsStore.isCodexIntegrationEnabled ? "Disable Codex Integration" : "Enable Codex Integration..."
         codexStatusItem?.title = "Codex Status: \(activityStatus.displayName)"
+        codexReceiverItem?.title = codexReceiverLabel
         codexConfigPathItem?.title = codexHookManager.isInstalled()
             ? "Hooks: Installed at \(codexHookManager.configPath)"
             : "Hooks: Not installed"
+        codexOpenConfigItem?.isEnabled = true
+        codexTestMenuItem?.isEnabled = activityStatusServer.isRunning || SettingsStore.isCodexIntegrationEnabled
+    }
+
+    private var codexReceiverLabel: String {
+        if let codexReceiverErrorMessage {
+            return "Receiver: Error - \(codexReceiverErrorMessage)"
+        }
+
+        if activityStatusServer.isRunning {
+            return "Receiver: Listening on \(ActivityStatusServer.host):\(ActivityStatusServer.port)"
+        }
+
+        return "Receiver: Offline"
+    }
+
+    private func makeCodexTestItem(title: String, status: ActivityStatus) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: #selector(sendCodexTestStatus), keyEquivalent: "")
+        item.target = self
+        item.representedObject = status
+        return item
     }
 }
