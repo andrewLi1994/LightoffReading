@@ -493,6 +493,8 @@ final class OverlayController {
     private static let activityEnterTransitionDuration: TimeInterval = 0.38
     private static let doneHighlightDuration: TimeInterval = 0.28
     private static let doneExitTransitionDuration: TimeInterval = 0.75
+    private static let activityTransitionFrameInterval: TimeInterval = 1.0 / 45.0
+    private static let activityPulseFrameInterval: TimeInterval = 1.0 / 12.0
 
     private var config: SpotlightConfig
     private var windowsByDisplayID: [CGDirectDisplayID: SpotlightOverlayWindow] = [:]
@@ -508,8 +510,11 @@ final class OverlayController {
     private var activityTransitionStartTime: TimeInterval?
     private var activityTransitionDuration: TimeInterval = 0.38
     private var activityTransitionFromStyle: EdgeGlowStyle = .off
+    private var activityTransitionFrameInterval: TimeInterval?
+    private var lastActivityTransitionFrameTime: TimeInterval = 0
     private var doneHighlightEndTime: TimeInterval?
     private var postDoneStatus: ActivityStatus = .idle
+    private var lastActivityPulseFrameTime: TimeInterval = 0
 
     var onActivityStatusSettled: ((ActivityStatus) -> Void)?
 
@@ -613,7 +618,8 @@ final class OverlayController {
                 to: activityStatus == .idle ? fadeOutStyle(from: displayedEdgeGlowStyle) : edgeGlowStyle(for: activityStatus),
                 from: displayedEdgeGlowStyle,
                 now: now,
-                duration: activityStatus == .idle ? Self.doneExitTransitionDuration : Self.activityEnterTransitionDuration
+                duration: activityStatus == .idle ? Self.doneExitTransitionDuration : Self.activityEnterTransitionDuration,
+                frameInterval: Self.activityTransitionFrameInterval
             )
         }
 
@@ -707,7 +713,7 @@ final class OverlayController {
         }
 
         updateRenderState(
-            force: force || animationChanged || configAnimationChanged || activityAnimationChanged || shouldContinueActivityAnimation(now: now),
+            force: force || animationChanged || configAnimationChanged || activityAnimationChanged || shouldRenderActivityPulseFrame(now: now),
             now: now
         )
     }
@@ -911,6 +917,7 @@ final class OverlayController {
 
         if rawProgress >= 1 {
             self.activityTransitionStartTime = nil
+            self.activityTransitionFrameInterval = nil
             if targetEdgeGlowStyle.intensity <= 0.001 {
                 self.targetEdgeGlowStyle = .off
                 self.activityTransitionFromStyle = .off
@@ -927,11 +934,19 @@ final class OverlayController {
         return style
     }
 
-    private func beginActivityTransition(to targetStyle: EdgeGlowStyle, from sourceStyle: EdgeGlowStyle, now: TimeInterval, duration: TimeInterval) {
+    private func beginActivityTransition(
+        to targetStyle: EdgeGlowStyle,
+        from sourceStyle: EdgeGlowStyle,
+        now: TimeInterval,
+        duration: TimeInterval,
+        frameInterval: TimeInterval? = nil
+    ) {
         activityTransitionFromStyle = sourceStyle
         targetEdgeGlowStyle = targetStyle
         activityTransitionStartTime = now
         activityTransitionDuration = duration
+        activityTransitionFrameInterval = frameInterval
+        lastActivityTransitionFrameTime = 0
     }
 
     private func fadeOutStyle(from style: EdgeGlowStyle) -> EdgeGlowStyle {
@@ -945,12 +960,35 @@ final class OverlayController {
         )
     }
 
-    private func shouldContinueActivityAnimation(now: TimeInterval) -> Bool {
-        if activityStatus != .idle {
+    private func shouldRenderActivityPulseFrame(now: TimeInterval) -> Bool {
+        if targetEdgeGlowStyle == .off,
+           activityTransitionStartTime == nil {
+            return false
+        }
+
+        if activityTransitionStartTime != nil {
+            guard let activityTransitionFrameInterval else {
+                return true
+            }
+
+            guard now - lastActivityTransitionFrameTime >= activityTransitionFrameInterval else {
+                return false
+            }
+
+            lastActivityTransitionFrameTime = now
             return true
         }
 
-        return currentDisplayedEdgeGlowStyle(now: now) != .off
+        guard activityStatus != .idle else {
+            return true
+        }
+
+        guard now - lastActivityPulseFrameTime >= Self.activityPulseFrameInterval else {
+            return false
+        }
+
+        lastActivityPulseFrameTime = now
+        return true
     }
 
     private func edgeGlowStyle(for status: ActivityStatus) -> EdgeGlowStyle {
