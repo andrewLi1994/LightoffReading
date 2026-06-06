@@ -399,6 +399,7 @@ final class OverlayController {
     private var visualProgress: CGFloat = 0
     private var animation: OverlayAnimation?
     private var configAnimation: ConfigAnimation?
+    private var activityStatus: ActivityStatus = .idle
 
     var isEnabled: Bool {
         state == .animatingOn || state == .on
@@ -450,6 +451,19 @@ final class OverlayController {
         }
 
         if state != .off {
+            tick(force: true)
+        }
+    }
+
+    func update(activityStatus: ActivityStatus) {
+        guard self.activityStatus != activityStatus else {
+            return
+        }
+
+        self.activityStatus = activityStatus
+
+        if state != .off {
+            startTimerIfNeeded()
             tick(force: true)
         }
     }
@@ -536,7 +550,10 @@ final class OverlayController {
             return
         }
 
-        updateRenderState(force: force || animationChanged || configAnimationChanged, now: now)
+        updateRenderState(
+            force: force || animationChanged || configAnimationChanged || activityStatus != .idle,
+            now: now
+        )
     }
 
     private func advanceAnimation(now: TimeInterval) -> Bool {
@@ -615,15 +632,19 @@ final class OverlayController {
         let activeDisplayID = activeScreen.displayID
         let shapeState = currentShapeTransitionState(now: now)
         let spotlightPoint = clampedSpotlightPoint(for: mouseLocation, on: activeScreen, shapeState: shapeState)
-        let opacity = shapeState.config.opacity * visualProgress
+        let activityEffect = currentActivityEffect(now: now)
+        let opacity = (shapeState.config.opacity * activityEffect.opacityMultiplier).clamped(to: 0...0.95) * visualProgress
 
         for (displayID, window) in windowsByDisplayID {
             if displayID == activeDisplayID {
                 let coverSize = window.screenCoveringSize
                 let expandedFeather = max(shapeState.config.feather, min(coverSize.width, coverSize.height) * 0.08)
-                let width = coverSize.width + (shapeState.config.width - coverSize.width) * visualProgress
-                let height = coverSize.height + (shapeState.config.height - coverSize.height) * visualProgress
-                let feather = expandedFeather + (shapeState.config.feather - expandedFeather) * visualProgress
+                let baseWidth = coverSize.width + (shapeState.config.width - coverSize.width) * visualProgress
+                let baseHeight = coverSize.height + (shapeState.config.height - coverSize.height) * visualProgress
+                let baseFeather = expandedFeather + (shapeState.config.feather - expandedFeather) * visualProgress
+                let width = baseWidth + activityEffect.sizeDelta
+                let height = baseHeight + activityEffect.sizeDelta * 0.45
+                let feather = baseFeather + activityEffect.featherDelta
 
                 window.applyRenderState(
                     opacity: opacity,
@@ -657,6 +678,27 @@ final class OverlayController {
 
         let shifted = -2 * progress + 2
         return 1 - (shifted * shifted * shifted) / 2
+    }
+
+    private func currentActivityEffect(now: TimeInterval) -> (opacityMultiplier: CGFloat, sizeDelta: CGFloat, featherDelta: CGFloat) {
+        switch activityStatus {
+        case .idle:
+            return (1, 0, 0)
+        case .running:
+            let wave = (sin(now * 2.4) + 1) / 2
+            return (
+                opacityMultiplier: 0.92 + CGFloat(wave) * 0.14,
+                sizeDelta: CGFloat(wave) * 28,
+                featherDelta: CGFloat(wave) * 18
+            )
+        case .needsApproval:
+            let wave = (sin(now * 5.2) + 1) / 2
+            return (
+                opacityMultiplier: 1.02 + CGFloat(wave) * 0.18,
+                sizeDelta: CGFloat(wave) * 44,
+                featherDelta: CGFloat(wave) * 26
+            )
+        }
     }
 
     private func screen(containing point: NSPoint) -> NSScreen? {

@@ -227,13 +227,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var toggleItem: NSMenuItem?
     private var hudVisibilityItem: NSMenuItem?
     private var shortcutItem: NSMenuItem?
+    private var codexIntegrationItem: NSMenuItem?
+    private var codexStatusItem: NSMenuItem?
+    private var codexConfigPathItem: NSMenuItem?
     private var isHUDHiddenByUser = false
+    private let activityStatusServer = ActivityStatusServer()
+    private let codexHookManager = CodexHookManager()
+    private var activityStatus: ActivityStatus = .idle
+    private var isOverlayEnabledByActivity = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         ProcessInfo.processInfo.disableAutomaticTermination("LightoffReading is a persistent menu bar utility.")
 
         overlayController = OverlayController(config: config)
+        activityStatusServer.onStatus = { [weak self] status in
+            self?.applyActivityStatus(status)
+        }
         setupStatusItem()
 
         floatingHUDController = FloatingHUDController(
@@ -289,6 +299,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         floatingHUDController?.show(animated: false)
         floatingHUDController?.scheduleReturnToCompact(after: 3.2)
         _ = registerHotKey(hotKeyDefinition)
+        if SettingsStore.isCodexIntegrationEnabled {
+            startActivityStatusServer(showErrors: false)
+        }
 
         refreshMenuState()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
@@ -346,6 +359,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         menu.addItem(.separator())
 
+        let codexTitleItem = NSMenuItem(title: "Codex Integration", action: nil, keyEquivalent: "")
+        codexTitleItem.isEnabled = false
+        menu.addItem(codexTitleItem)
+
+        let codexIntegrationItem = NSMenuItem(title: "Enable Codex Integration...", action: #selector(toggleCodexIntegration), keyEquivalent: "")
+        codexIntegrationItem.target = self
+        self.codexIntegrationItem = codexIntegrationItem
+        menu.addItem(codexIntegrationItem)
+
+        let codexStatusItem = NSMenuItem(title: "Codex Status: Idle", action: nil, keyEquivalent: "")
+        codexStatusItem.isEnabled = false
+        self.codexStatusItem = codexStatusItem
+        menu.addItem(codexStatusItem)
+
+        let codexConfigPathItem = NSMenuItem(title: "Hooks: \(codexHookManager.configPath)", action: nil, keyEquivalent: "")
+        codexConfigPathItem.isEnabled = false
+        self.codexConfigPathItem = codexConfigPathItem
+        menu.addItem(codexConfigPathItem)
+
+        menu.addItem(.separator())
+
         let supportItem = NSMenuItem(title: "Support Project", action: #selector(openSupportPage), keyEquivalent: "")
         supportItem.target = self
         menu.addItem(supportItem)
@@ -385,6 +419,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
 
+        isOverlayEnabledByActivity = false
         overlayController.setEnabled(!overlayController.isEnabled)
         floatingHUDController?.updateLightState(overlayController.isEnabled)
         compactHUDController?.updateLightState(overlayController.isEnabled)
@@ -471,6 +506,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         refreshMenuState()
     }
 
+    @objc private func toggleCodexIntegration() {
+        if SettingsStore.isCodexIntegrationEnabled {
+            disableCodexIntegration()
+        } else {
+            enableCodexIntegration()
+        }
+    }
+
     @objc private func openSupportPage() {
         guard let url = URL(string: "https://github.com/sponsors/andrewLi1994") else {
             return
@@ -531,6 +574,105 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         alert.runModal()
     }
 
+    private func enableCodexIntegration() {
+        guard startActivityStatusServer(showErrors: true) else {
+            return
+        }
+
+        do {
+            try codexHookManager.install()
+            SettingsStore.setCodexIntegrationEnabled(true)
+            refreshMenuState()
+            showCodexIntegrationEnabledMessage()
+        } catch {
+            SettingsStore.setCodexIntegrationEnabled(false)
+            stopActivityStatusServerIfUnused()
+            showCodexIntegrationError(error)
+        }
+    }
+
+    private func disableCodexIntegration() {
+        do {
+            try codexHookManager.uninstall()
+        } catch {
+            showCodexIntegrationError(error)
+            return
+        }
+
+        SettingsStore.setCodexIntegrationEnabled(false)
+        stopActivityStatusServerIfUnused()
+        applyActivityStatus(.idle)
+        refreshMenuState()
+    }
+
+    @discardableResult
+    private func startActivityStatusServer(showErrors: Bool) -> Bool {
+        do {
+            try activityStatusServer.start()
+            return true
+        } catch {
+            if showErrors {
+                showCodexIntegrationError(error)
+            }
+            return false
+        }
+    }
+
+    private func stopActivityStatusServerIfUnused() {
+        guard !SettingsStore.isCodexIntegrationEnabled else {
+            return
+        }
+
+        activityStatusServer.stop()
+    }
+
+    private func applyActivityStatus(_ status: ActivityStatus) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  let overlayController else {
+                return
+            }
+
+            activityStatus = status
+            overlayController.update(activityStatus: status)
+
+            switch status {
+            case .idle:
+                if isOverlayEnabledByActivity {
+                    isOverlayEnabledByActivity = false
+                    overlayController.setEnabled(false)
+                }
+            case .running, .needsApproval:
+                if !overlayController.isEnabled {
+                    isOverlayEnabledByActivity = true
+                    overlayController.setEnabled(true)
+                }
+            }
+
+            floatingHUDController?.updateLightState(overlayController.isEnabled)
+            compactHUDController?.updateLightState(overlayController.isEnabled)
+            refreshMenuState()
+        }
+    }
+
+    private func showCodexIntegrationEnabledMessage() {
+        let alert = NSAlert()
+        alert.messageText = "Codex Integration Enabled"
+        alert.informativeText = "Hooks were written to \(codexHookManager.configPath). Open Codex, run /hooks, review the LightoffReading hooks, and trust them once."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    private func showCodexIntegrationError(_ error: Error) {
+        let alert = NSAlert()
+        alert.messageText = "Codex Integration Error"
+        alert.informativeText = error.localizedDescription
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
     private func refreshMenuState() {
         if let overlayController {
             toggleItem?.title = overlayController.isEnabled ? "Disable Reading Light" : "Enable Reading Light"
@@ -546,5 +688,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
 
         hudVisibilityItem?.title = isHUDHiddenByUser ? "Show Floating HUD" : "Hide Floating HUD"
+        codexIntegrationItem?.title = SettingsStore.isCodexIntegrationEnabled ? "Disable Codex Integration" : "Enable Codex Integration..."
+        codexStatusItem?.title = "Codex Status: \(activityStatus.displayName)"
+        codexConfigPathItem?.title = codexHookManager.isInstalled()
+            ? "Hooks: Installed at \(codexHookManager.configPath)"
+            : "Hooks: Not installed"
     }
 }

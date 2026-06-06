@@ -24,10 +24,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ github.ref_name }}
         run: |
+          PRERELEASE_ARGS=()
+          if [[ "$TAG_NAME" == *alpha* || "$TAG_NAME" == *beta* || "$TAG_NAME" == *rc* ]]; then
+            PRERELEASE_ARGS=(--prerelease)
+          fi
+
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
             gh release upload "$TAG_NAME" dist/LightoffReading.zip dist/LightoffReading.zip.sha256 --clobber
+            if [[ "${#PRERELEASE_ARGS[@]}" -gt 0 ]]; then
+              gh release edit "$TAG_NAME" "${PRERELEASE_ARGS[@]}"
+            fi
           else
             gh release create "$TAG_NAME" dist/LightoffReading.zip dist/LightoffReading.zip.sha256 \
+              "${PRERELEASE_ARGS[@]}" \
               --title "$TAG_NAME" \
               --notes "Download LightoffReading.zip, or install from Terminal with the command in README.md."
           fi

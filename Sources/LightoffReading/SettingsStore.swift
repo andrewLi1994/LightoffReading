@@ -13,6 +13,7 @@ enum SettingsStore {
     private static let hotKeyModifiersKey = "hotkey.modifiers"
     private static let hotKeyDisplayKey = "hotkey.displayKey"
     private static let menuBarHintShownKey = "onboarding.menuBarHintShown"
+    private static let codexIntegrationEnabledKey = "codexIntegration.enabled"
 
     static var defaultConfig: SpotlightConfig {
         SpotlightConfig(
@@ -93,5 +94,13 @@ enum SettingsStore {
 
     static func markMenuBarHintShown() {
         UserDefaults.standard.set(true, forKey: menuBarHintShownKey)
+    }
+
+    static var isCodexIntegrationEnabled: Bool {
+        UserDefaults.standard.bool(forKey: codexIntegrationEnabledKey)
+    }
+
+    static func setCodexIntegrationEnabled(_ enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: codexIntegrationEnabledKey)
     }
 }

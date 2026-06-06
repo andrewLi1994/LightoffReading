@@ -22,6 +22,34 @@ curl -fsSL https://raw.githubusercontent.com/andrewLi1994/LightoffReading/main/s
 
 This downloads the latest release, copies the app to `/Applications`, and opens it.
 
+### Experimental Codex Alpha
+
+Codex integration is an experimental developer channel. It installs to the same path as the stable app:
+
+```text
+/Applications/LightoffReading.app
+```
+
+Installing the alpha replaces the stable app. Installing the stable release again replaces the alpha.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/andrewLi1994/LightoffReading/experiment/codex-status-light/scripts/install-codex-alpha.sh | bash
+```
+
+The alpha does not enable Codex hooks automatically. Open the LightoffReading menu bar item, choose `Enable Codex Integration...`, then open Codex and run `/hooks` to review and trust the LightoffReading hooks once.
+
+To remove Codex hooks after reverting to stable:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/andrewLi1994/LightoffReading/experiment/codex-status-light/scripts/uninstall-codex-hooks.sh | bash
+```
+
+Return to stable:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/andrewLi1994/LightoffReading/main/scripts/install-latest.sh | bash
+```
+
 ### Install Without Terminal
 
 1. Open the latest release:

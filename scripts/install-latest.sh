@@ -45,6 +45,7 @@ if [[ ! -d "$INSTALL_DIR" ]]; then
 fi
 
 /usr/bin/osascript -e "tell application \"$APP_NAME\" to quit" >/dev/null 2>&1 || true
+pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 sleep 0.4
 
 if [[ -w "$INSTALL_DIR" ]]; then
