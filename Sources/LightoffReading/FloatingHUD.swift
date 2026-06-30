@@ -401,7 +401,7 @@ final class FloatingHUDView: NSVisualEffectView {
         featherRow.frame.origin = NSPoint(x: 20, y: 140)
         addSubview(featherRow)
 
-        opacityRow = makeRow(title: "Darkness", symbolName: "circle.lefthalf.filled", value: Double(config.opacity), range: 0.35...0.90, formatter: percentFormatter) { [weak self] value in
+        opacityRow = makeRow(title: "Darkness", symbolName: "circle.lefthalf.filled", value: Double(config.opacity), range: 0...1, formatter: percentFormatter) { [weak self] value in
             self?.config.opacity = CGFloat(value)
             self?.emitConfigChange()
         }
