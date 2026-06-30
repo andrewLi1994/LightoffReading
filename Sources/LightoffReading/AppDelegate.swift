@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import Sparkle
 
 final class GlobalHotKey {
     private static let signature: OSType = 0x4c4f4646
@@ -215,6 +216,7 @@ final class FirstRunHintView: NSView {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+    private let updaterController: SPUStandardUpdaterController
     private var config = SettingsStore.load()
     private var hotKeyDefinition = SettingsStore.loadHotKey()
     private var hotKey: GlobalHotKey?
@@ -242,6 +244,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var isOverlayEnabledByActivity = false
     private var isActivityAutoOpenSuppressedByUser = false
     private var codexReceiverErrorMessage: String?
+
+    override init() {
+        updaterController = SPUStandardUpdaterController(
+            startingUpdater: true,
+            updaterDelegate: nil,
+            userDriverDelegate: nil
+        )
+        super.init()
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -427,6 +438,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         menu.addItem(codexTestMenuItem)
 
         menu.addItem(.separator())
+
+        let checkForUpdatesItem = NSMenuItem(
+            title: "Check for Updates...",
+            action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)),
+            keyEquivalent: ""
+        )
+        checkForUpdatesItem.target = updaterController
+        menu.addItem(checkForUpdatesItem)
 
         let supportItem = NSMenuItem(title: "Support Project", action: #selector(openSupportPage), keyEquivalent: "")
         supportItem.target = self

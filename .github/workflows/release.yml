@@ -17,6 +17,8 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build release package
+        env:
+          APP_BUILD_NUMBER: ${{ github.run_number }}
         run: bash scripts/package-release.sh
 
       - name: Publish GitHub Release
@@ -40,3 +42,38 @@ jobs:
               --title "$TAG_NAME" \
               --notes "Download LightoffReading.zip, or install from Terminal with the command in README.md."
           fi
+
+      - name: Generate signed update feed
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          test -n "$SPARKLE_PRIVATE_KEY"
+          mkdir -p dist/appcast-input
+          cp dist/LightoffReading.zip dist/appcast-input/LightoffReading.zip
+          GENERATE_APPCAST="$(find .build/artifacts -path '*/Sparkle/bin/generate_appcast' -print -quit)"
+          SIGN_UPDATE="$(find .build/artifacts -path '*/Sparkle/bin/sign_update' -print -quit)"
+          test -x "$GENERATE_APPCAST"
+          test -x "$SIGN_UPDATE"
+          printf '%s\n' "$SPARKLE_PRIVATE_KEY" | "$GENERATE_APPCAST" \
+            --ed-key-file - \
+            --download-url-prefix "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG_NAME}/" \
+            --maximum-deltas 0 \
+            -o dist/appcast.xml \
+            dist/appcast-input
+          printf '%s\n' "$SPARKLE_PRIVATE_KEY" | "$SIGN_UPDATE" \
+            --ed-key-file - \
+            --verify dist/appcast.xml
+
+      - name: Publish update feed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view appcast >/dev/null 2>&1; then
+            gh release create appcast \
+              --prerelease \
+              --target "$GITHUB_SHA" \
+              --title "Automatic Update Feeds" \
+              --notes "Machine-managed Sparkle update feeds."
+          fi
+          gh release upload appcast dist/appcast.xml --clobber
