@@ -33,6 +33,8 @@ curl -fsSL https://raw.githubusercontent.com/andrewLi1994/LightoffReading/main/s
 
 从 `/Applications` 打开 LightoffReading。打开后，它会出现在 macOS 菜单栏里。
 
+首次安装后，LightoffReading 会自动检查并安装经过签名的更新。你也可以从菜单栏菜单中选择 `Check for Updates...` 手动检查。
+
 如果 macOS 第一次打开时阻止运行，请打开系统设置，并在“隐私与安全性”里允许该应用。
 
 ## 功能
@@ -47,9 +49,9 @@ curl -fsSL https://raw.githubusercontent.com/andrewLi1994/LightoffReading/main/s
 
 ## 隐私
 
-LightoffReading 不包含分析统计、遥测、账号系统或后台网络上报。
+LightoffReading 不包含分析统计、遥测、账号系统或使用情况上报。
 
-应用只会在你的 Mac 本地保存快捷键和视觉设置。安装脚本只会通过 GitHub 下载最新发布版本。
+应用只会在你的 Mac 本地保存快捷键和视觉设置，并连接 GitHub Releases 检查和下载经过签名的更新。
 
 ## 使用
 

@@ -7,9 +7,15 @@ let package = Package(
     platforms: [
         .macOS(.v13)
     ],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.3")
+    ],
     targets: [
         .executableTarget(
-            name: "LightoffReading"
+            name: "LightoffReading",
+            dependencies: [
+                .product(name: "Sparkle", package: "Sparkle")
+            ]
         )
     ]
 )

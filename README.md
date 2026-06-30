@@ -33,6 +33,8 @@ This downloads the latest release, copies the app to `/Applications`, and opens 
 
 Open LightoffReading from `/Applications`. It will appear in the macOS menu bar.
 
+After the first installation, LightoffReading checks for signed updates automatically. You can also choose `Check for Updates...` from its menu bar menu.
+
 If macOS blocks the app on first launch, open System Settings and approve it from the Privacy & Security section.
 
 ## What It Does
@@ -47,9 +49,9 @@ If macOS blocks the app on first launch, open System Settings and approve it fro
 
 ## Privacy
 
-LightoffReading does not include analytics, telemetry, accounts, or background network reporting.
+LightoffReading does not include analytics, telemetry, accounts, or usage reporting.
 
-The app stores your shortcut and visual settings locally on your Mac. The install script uses GitHub only to download the latest release asset.
+The app stores your shortcut and visual settings locally on your Mac. It connects to GitHub Releases to check for and download signed updates.
 
 ## Usage
 
