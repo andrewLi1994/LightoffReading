@@ -114,6 +114,8 @@ cat > "$APP_PATH/Contents/Info.plist" <<PLIST
     <string>$SPARKLE_PUBLIC_ED_KEY</string>
     <key>SURequireSignedFeed</key>
     <true/>
+    <key>SUVerifyUpdateBeforeExtraction</key>
+    <true/>
     <key>SUEnableAutomaticChecks</key>
     <true/>
     <key>SUAutomaticallyUpdate</key>
