@@ -19,6 +19,7 @@ jobs:
       - name: Build release package
         env:
           APP_BUILD_NUMBER: ${{ github.run_number }}
+          APPCAST_URL: https://github.com/andrewLi1994/LightoffReading/releases/download/appcast/appcast-codex-alpha.xml
         run: bash scripts/package-release.sh
 
       - name: Publish GitHub Release
@@ -59,11 +60,11 @@ jobs:
             --ed-key-file - \
             --download-url-prefix "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG_NAME}/" \
             --maximum-deltas 0 \
-            -o dist/appcast.xml \
+            -o dist/appcast-codex-alpha.xml \
             dist/appcast-input
           printf '%s\n' "$SPARKLE_PRIVATE_KEY" | "$SIGN_UPDATE" \
             --ed-key-file - \
-            --verify dist/appcast.xml
+            --verify dist/appcast-codex-alpha.xml
 
       - name: Publish update feed
         env:
@@ -76,4 +77,4 @@ jobs:
               --title "Automatic Update Feeds" \
               --notes "Machine-managed Sparkle update feeds."
           fi
-          gh release upload appcast dist/appcast.xml --clobber
+          gh release upload appcast dist/appcast-codex-alpha.xml --clobber
