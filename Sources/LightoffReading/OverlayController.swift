@@ -95,15 +95,14 @@ final class SpotlightOverlayView: NSView {
             return
         }
 
-        guard effectiveOpacity > 0.001 else {
-            return
+        if effectiveOpacity > 0.001 {
+            context.setFillColor(NSColor.black.withAlphaComponent(effectiveOpacity).cgColor)
+            context.fill(bounds)
         }
-
-        context.setFillColor(NSColor.black.withAlphaComponent(effectiveOpacity).cgColor)
-        context.fill(bounds)
+        
         drawEdgeGlow(in: context)
 
-        guard let spotlightCenter else {
+        guard effectiveOpacity > 0.001, let spotlightCenter else {
             return
         }
 
