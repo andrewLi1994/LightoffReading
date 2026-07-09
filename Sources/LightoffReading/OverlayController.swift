@@ -182,6 +182,34 @@ final class SpotlightOverlayView: NSView {
             color: color,
             alpha: alpha
         )
+        drawEdgeSignalBand(in: context, color: color, alpha: alpha, thickness: thickness)
+    }
+
+    private func drawEdgeSignalBand(
+        in context: CGContext,
+        color: NSColor,
+        alpha: CGFloat,
+        thickness: CGFloat
+    ) {
+        let bandThickness = max(5, min(14, thickness * 0.48))
+        let innerLineThickness = max(1.5, min(3, bandThickness * 0.28))
+        let bandColor = color.withAlphaComponent((alpha * 0.82).clamped(to: 0...1)).cgColor
+        let innerLineColor = NSColor.white.withAlphaComponent((alpha * 0.22).clamped(to: 0...1)).cgColor
+
+        context.saveGState()
+        context.setBlendMode(.screen)
+        context.setFillColor(bandColor)
+        context.fill(NSRect(x: 0, y: bounds.height - bandThickness, width: bounds.width, height: bandThickness))
+        context.fill(NSRect(x: 0, y: 0, width: bounds.width, height: bandThickness))
+        context.fill(NSRect(x: 0, y: 0, width: bandThickness, height: bounds.height))
+        context.fill(NSRect(x: bounds.width - bandThickness, y: 0, width: bandThickness, height: bounds.height))
+
+        context.setFillColor(innerLineColor)
+        context.fill(NSRect(x: 0, y: bounds.height - bandThickness, width: bounds.width, height: innerLineThickness))
+        context.fill(NSRect(x: 0, y: bandThickness - innerLineThickness, width: bounds.width, height: innerLineThickness))
+        context.fill(NSRect(x: bandThickness - innerLineThickness, y: 0, width: innerLineThickness, height: bounds.height))
+        context.fill(NSRect(x: bounds.width - bandThickness, y: 0, width: innerLineThickness, height: bounds.height))
+        context.restoreGState()
     }
 
     private func drawEdgeGradient(
@@ -997,10 +1025,10 @@ final class OverlayController {
         case .running:
             return EdgeGlowStyle(
                 color: RGBColor(red: 0.16, green: 0.82, blue: 1.0),
-                intensity: 0.36,
-                thickness: 14,
-                softness: 44,
-                pulseAmplitude: 0.12,
+                intensity: 0.72,
+                thickness: 22,
+                softness: 58,
+                pulseAmplitude: 0.16,
                 pulseSpeed: 2.1
             )
         case .done:
@@ -1008,10 +1036,10 @@ final class OverlayController {
         case .needsApproval:
             return EdgeGlowStyle(
                 color: RGBColor(red: 1.0, green: 0.78, blue: 0.22),
-                intensity: 0.56,
-                thickness: 18,
-                softness: 56,
-                pulseAmplitude: 0.18,
+                intensity: 0.9,
+                thickness: 26,
+                softness: 66,
+                pulseAmplitude: 0.22,
                 pulseSpeed: 3.4
             )
         }
@@ -1020,9 +1048,9 @@ final class OverlayController {
     private var doneGlowStyle: EdgeGlowStyle {
         EdgeGlowStyle(
             color: RGBColor(red: 0.32, green: 1.0, blue: 0.58),
-            intensity: 0.62,
-            thickness: 22,
-            softness: 76,
+            intensity: 0.86,
+            thickness: 28,
+            softness: 78,
             pulseAmplitude: 0,
             pulseSpeed: 1
         )

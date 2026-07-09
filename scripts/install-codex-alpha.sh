@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO="${LIGHTOFF_READING_REPO:-andrewLi1994/LightoffReading}"
-ALPHA_TAG="${LIGHTOFF_READING_ALPHA_TAG:-v0.2.0-codex-alpha.1}"
+ALPHA_TAG="${LIGHTOFF_READING_ALPHA_TAG:-v0.2.0-codex-alpha.7}"
 ASSET_NAME="${LIGHTOFF_READING_ASSET:-LightoffReading.zip}"
 INSTALLER_REF="${LIGHTOFF_READING_INSTALLER_REF:-main}"
 DOWNLOAD_URL="${LIGHTOFF_READING_DOWNLOAD_URL:-https://github.com/$REPO/releases/download/$ALPHA_TAG/$ASSET_NAME}"
